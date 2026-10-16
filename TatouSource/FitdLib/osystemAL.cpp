@@ -692,6 +692,25 @@ void osystem_stopSample()
     g_activeSfx.clear();
 }
 
+// Stops only the looping samples (LM_REP_SAMPLE); one-shot sound effects keep playing.
+void osystem_stopLoopingSamples()
+{
+    if (!gSoloud) return;
+    for (size_t i = 0; i < g_activeSfx.size(); )
+    {
+        if (g_activeSfx[i].looping)
+        {
+            gSoloud->stop(g_activeSfx[i].handle);
+            delete g_activeSfx[i].source;
+            g_activeSfx.erase(g_activeSfx.begin() + i);
+        }
+        else
+        {
+            i++;
+        }
+    }
+}
+
 bool osystem_isSamplePlaying()
 {
     if (!gSoloud) return false;

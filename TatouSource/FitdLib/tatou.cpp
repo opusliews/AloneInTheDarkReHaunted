@@ -201,6 +201,28 @@ void playSound(int num)
 	LastSample = num;
 }
 
+// A looping sample (LM_REP_SAMPLE, e.g. the talisman chimes of LIFE 186) belongs to the
+// room it was started in. The scripts never stop one (no script uses LM_STOP_SAMPLE); the
+// original DOS game stops it when the player leaves the room, not when the item is taken
+// (user test in vanilla DOSBox, 2026-10-16; Research/TalismanChimeLoop.md, option B).
+static int s_lastLoopingSample = -1;
+static int s_loopFloor = -1;
+static int s_loopRoom = -1;
+
+void stopLoopingSounds()
+{
+	osystem_stopLoopingSamples();
+	s_lastLoopingSample = -1;
+	s_loopFloor = s_loopRoom = -1;
+}
+
+// Called every gameplay frame.
+void stopLoopingSoundsOnRoomChange()
+{
+	if (s_lastLoopingSample != -1 && (g_currentFloor != s_loopFloor || currentRoom != s_loopRoom))
+		stopLoopingSounds();
+}
+
 void playSoundLooping(int num)
 {
 	if(num == -1)
@@ -210,7 +232,6 @@ void playSoundLooping(int num)
 		return;
 
 	// Skip re-triggering the same looping sample if it is still playing.
-	static int s_lastLoopingSample = -1;
 	if(num == s_lastLoopingSample && osystem_isSamplePlaying())
 		return;
 
@@ -234,6 +255,8 @@ void playSoundLooping(int num)
 
 	osystem_playLoopingSample(ptr, size);
 	s_lastLoopingSample = num;
+	s_loopFloor = g_currentFloor;
+	s_loopRoom = currentRoom;
 }
 
 ////////////////////////

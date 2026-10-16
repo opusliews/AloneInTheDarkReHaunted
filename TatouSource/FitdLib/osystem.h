@@ -73,6 +73,7 @@
 	void osystem_playSampleFromName(char* sampleName);
 	void osystem_playSample(char* samplePtr,int size);
 	void osystem_playLoopingSample(char* samplePtr, int size);
+	void osystem_stopLoopingSamples();
 	void osystem_stopSample();
 	bool osystem_isSamplePlaying();
 	void osystem_reloadAudioArchive();
