@@ -98,6 +98,13 @@ void applyLanternBloom(bgfx::TextureHandle lanternTexture,
 // Draws a radial warm glow centred on the held lantern's screen position via ImGui draw list.
 void renderLanternGlow();
 
+// Lamp put down or thrown (AITD1 OBJ 13 drawn as an object): AllRedraw records its on-screen
+// centre (320x200) each frame; the glow and the background light then follow it while the
+// lamp is lit (var 7). User request 2026-10-16: before, only a held lamp glowed.
+void lanternBeginLampFrame();
+void lanternRecordLampScreen(int x, int y);
+void lanternEndLampFrame();
+
 // Render lens flare effects (call from EndFrame after renderLanternGlow)
 // Draws star-shaped lens flare and anamorphic streaks when looking at lantern
 void renderLanternFlare();

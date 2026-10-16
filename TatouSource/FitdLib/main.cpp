@@ -3932,6 +3932,7 @@ void AllRedraw(int flagFlip)
         lightX = 20000;
         lightY = 20000;
     }
+    lanternBeginLampFrame();
 
     // Safety: If the object draw list is empty, force regeneration (prevents 3D objects from disappearing)
     if (NbAffObjets == 0 && !lightOff) {
@@ -4069,6 +4070,8 @@ void AllRedraw(int flagFlip)
                             lightX = (BBox3D3 + BBox3D1) / 2;
                             lightY = (BBox3D4 + BBox3D2) / 2;
                         }
+                        if (actorPtr->indexInWorld == 13)    // the oil lamp, put down or thrown
+                            lanternRecordLampScreen((BBox3D3 + BBox3D1) / 2, (BBox3D4 + BBox3D2) / 2);
                     }
 
 #ifdef FITD_DEBUGGER
@@ -4175,6 +4178,7 @@ void AllRedraw(int flagFlip)
 
     //	osystem_flip(NULL);
 
+    lanternEndLampFrame();
     flagRedraw = 0;
 }
 

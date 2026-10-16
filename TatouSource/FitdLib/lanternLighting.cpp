@@ -17,6 +17,7 @@
 #include "renderer.h"
 #include "imguiBGFX.h"
 #include <map>
+#include <atomic>
 #include <cmath>
 #include <chrono>
 
@@ -480,6 +481,26 @@ void setLanternInHand(int objectIdx, bool inHand)
 
 // Simplified noise function using sine waves for realistic flame flicker
 // Creates natural-looking flame behavior with multiple frequency components
+static std::atomic<int> s_lampPendingX{ -1 }, s_lampPendingY{ -1 };
+static std::atomic<int> s_lampScreenX{ -1 }, s_lampScreenY{ -1 };
+
+void lanternBeginLampFrame() { s_lampPendingX = -1; s_lampPendingY = -1; }
+void lanternRecordLampScreen(int x, int y) { s_lampPendingX = x; s_lampPendingY = y; }
+void lanternEndLampFrame() { s_lampScreenX = s_lampPendingX.load(); s_lampScreenY = s_lampPendingY.load(); }
+
+// A lit lamp lying in the room or flying: its normalized screen position (0..1).
+static bool placedLampGlowing(float& nx, float& ny)
+{
+    if (g_gameId != AITD1 || !vars || vars[7] != 1)
+        return false;
+    const int x = s_lampScreenX.load(), y = s_lampScreenY.load();
+    if (x < 0 || y < 0)
+        return false;
+    nx = x / 320.0f;
+    ny = y / 200.0f;
+    return true;
+}
+
 static float calculateFlameFlicker(float time)
 {
     // Use multiple sine waves at different frequencies to create organic-looking flicker
@@ -740,6 +761,25 @@ void updateLanternLighting()
                 LANTERN_GLOW_R, LANTERN_GLOW_G, LANTERN_GLOW_B,
                 g_currentBackgroundIsHD ? s_bgLightSmoothInfluence : 0.0f,
                 lightRadius,
+                ambientDarken
+            );
+        }
+        else if (float px, py; placedLampGlowing(px, py))
+        {
+            // Lamp put down or thrown: light the background around it, like a held lamp.
+            static float s_placedFlicker = 0.0f;
+            s_placedFlicker += 0.016f;
+            const float LERP_VALUE = 0.08f;
+            s_bgLightSmoothX += (px - s_bgLightSmoothX) * 0.3f;
+            s_bgLightSmoothY += (py - s_bgLightSmoothY) * 0.3f;
+            s_bgLightSmoothIntensity += (calculateFlameFlicker(s_placedFlicker) - s_bgLightSmoothIntensity) * LERP_VALUE;
+            s_bgLightSmoothInfluence += (1.0f - s_bgLightSmoothInfluence) * LERP_VALUE;
+            const float ambientDarken = g_currentBackgroundIsHD ? 0.55f : 1.0f;
+            setHDBackgroundLanternUniforms(
+                s_bgLightSmoothX, s_bgLightSmoothY, s_bgLightSmoothIntensity,
+                LANTERN_GLOW_R, LANTERN_GLOW_G, LANTERN_GLOW_B,
+                g_currentBackgroundIsHD ? s_bgLightSmoothInfluence : 0.0f,
+                0.38f * 1.2f,
                 ambientDarken
             );
         }
@@ -1637,7 +1677,33 @@ void renderLanternGlow()
     }
 
     if (!lantern || lantern->glowIntensity <= 0.0f)
+    {
+        float px, py;
+        if (!placedLampGlowing(px, py))
+            return;
+        ImVec2 ds = ImGui::GetIO().DisplaySize;
+        if (ds.x <= 0.0f || ds.y <= 0.0f)
+            return;
+        static float s_placedGlowFlicker = 0.0f;
+        s_placedGlowFlicker += 0.016f;
+        const float intensity = calculateFlameFlicker(s_placedGlowFlicker);
+        const float sx = ds.x / 320.0f;
+        const float cx = px * ds.x, cy = py * ds.y;
+        const int kLayers = 16;
+        for (int layer = kLayers; layer >= 1; layer--)          // same halo as the held lamp
+        {
+            const float t = (float)layer / (float)kLayers;
+            float alpha = intensity * (1.0f - sqrtf(t)) * 140.0f;
+            if (alpha < 2.0f) continue;
+            if (alpha > 160.0f) alpha = 160.0f;
+            renderFilledCircle(cx, cy, 25.0f * t * sx, LANTERN_GLOW_R, LANTERN_GLOW_G, LANTERN_GLOW_B,
+                               alpha / 255.0f, 48);
+        }
+        float coreAlpha = intensity * 120.0f;
+        if (coreAlpha > 160.0f) coreAlpha = 160.0f;
+        renderFilledCircle(cx, cy, 4.0f * sx, 1.0f, 245.0f / 255.0f, 200.0f / 255.0f, coreAlpha / 255.0f, 24);
         return;
+    }
 
     // Calculate delta time for smooth fade animation
     static auto lastFrameTime = std::chrono::high_resolution_clock::now();
