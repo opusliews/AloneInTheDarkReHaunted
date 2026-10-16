@@ -63,6 +63,7 @@
 	void osystem_setPalette(palette_t* palette);
 	void osystem_setPalette320x200(byte * palette);
 	void osystem_setDarkRoom(bool dark);
+	void osystem_drawDarkMask(int lightX, int lightY);   // 320x200 coords; 20000 = no light
 	void osystem_flip(unsigned char *videoBuffer);
 	void osystem_draw320x200BufferToScreen(unsigned char *videoBuffer);
 	void osystem_CopyBlockPhys(unsigned char* videoBuffer, int left, int top, int right, int bottom);
