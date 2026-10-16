@@ -284,8 +284,18 @@ void StartFrame()
             }
 #endif
 
-            const bool isLitLantern   = (heldObj.foundBody == LANTERN_LIT_BODY_NUM);
-            const bool isUnlitLantern = (heldObj.foundBody == LANTERN_BODY_NUM);
+            bool isLitLantern   = (heldObj.foundBody == LANTERN_LIT_BODY_NUM);
+            bool isUnlitLantern = (heldObj.foundBody == LANTERN_BODY_NUM);
+            // AITD1's oil lamp (OBJ 13) keeps found body 10 lit or not: no script changes it.
+            // Its real state is var 7 (set to 1 by the matches/lighter scripts LIFE 205/351/429,
+            // back to 0 by the lamp's LIFE 9 when the oil runs out). Without this, holding an
+            // unlit lamp glowed (user report 2026-10-16).
+            if (g_gameId == AITD1 && heldObjIdx == 13 && vars)
+            {
+                const bool lit = vars[7] == 1;
+                isLitLantern = lit;
+                isUnlitLantern = !lit;
+            }
 
             if (isLitLantern || isUnlitLantern)
             {
