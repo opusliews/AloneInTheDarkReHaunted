@@ -128,6 +128,7 @@ void saveInterpolatedValue(RealValue* pRotateStruct, FILE* fHandle)
 
 int loadSave(int saveNumber)
 {
+    stopLoopingSounds();    // the loaded state starts without the current room's loop
     char buffer[256];
     FILE* fHandle;
     unsigned int var28;

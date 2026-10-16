@@ -327,6 +327,7 @@ static bool detectNearbyInteractiveHotspot()
 void PlayWorld(int allowSystemMenu, int deltaTime)
 {
     g_playWorldActive = true;
+    stopLoopingSounds();    // a new game or a loaded save starts without an old room's loop
     bool bLoop = true;
 
     while(bLoop)
@@ -491,6 +492,8 @@ void PlayWorld(int allowSystemMenu, int deltaTime)
         {
             action = 0;
         }
+
+        stopLoopingSoundsOnRoomChange();
 
         executeFoundLife(inHandTable[currentInventory]);
 
@@ -714,6 +717,7 @@ void PlayWorld(int allowSystemMenu, int deltaTime)
     shakingAmplitude = 0;
 
     stopShaking();
+    stopLoopingSounds();    // back to the menus
     g_playWorldActive = false;
     //  stopSounds();
 }
