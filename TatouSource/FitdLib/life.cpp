@@ -791,7 +791,11 @@ void processLife(int lifeNum, bool callFoundLife)
 
     // Run native C replacement if one is registered (safe-filter mode).
     // Scripts not registered fall through to the bytecode interpreter + patch system.
+#ifndef AITD_RANDOMIZER_EDITION   // the edition always runs LISTLIFE.PAK (the seed)
     if (g_remasterConfig.debug.enableNativeLifeScripts)
+#else
+    if (false)
+#endif
     {
         NativeLifeFunc nativeFunc = getNativeLifeScript(lifeNum);
         if (nativeFunc && !randomizerExperimentUsesPatchedLife(lifeNum) && !lifeBugfixForcesBytecode(lifeNum) &&

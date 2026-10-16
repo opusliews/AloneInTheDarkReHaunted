@@ -414,6 +414,14 @@ void loadRemasterConfig()
     if (g_remasterConfig.font.fontSize > 72) g_remasterConfig.font.fontSize = 72;
 
     printf(CFG_OK "Remaster config loaded\n");
+#ifdef AITD_RANDOMIZER_EDITION
+    // AITD Randomizer edition: the seed lives in LISTLIFE.PAK, so the native C++
+    // rewrites of the original scripts must never run, and the game must never copy
+    // original data over the seed or deploy itself into the player's Steam/GOG folder
+    // (the randomizer installer copies the data, with a backup).
+    g_remasterConfig.debug.enableNativeLifeScripts = false;
+    g_remasterConfig.gameData.steamless = true;
+#endif
 
     // Sync detail level with HD backgrounds setting
     extern int detailLevel;

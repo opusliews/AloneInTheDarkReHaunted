@@ -353,8 +353,16 @@ static void drawAdvancedTab()
 {
     ImGui::TextDisabled("Game data");
     ImGui::Separator();
+#ifdef AITD_RANDOMIZER_EDITION
+    ImGui::BeginDisabled();
+#endif
     ImGui::Checkbox("Steamless mode", &g_remasterConfig.gameData.steamless);
+#ifdef AITD_RANDOMIZER_EDITION
+    ImGui::EndDisabled();
+    helpMarker("Always on in the AITD Randomizer edition: the randomizer installer provides the game data.");
+#else
     helpMarker("Disables automatic game-data copying and Steam overlay integration after restart.");
+#endif
     ImGui::Checkbox("Jack in the Dark mode", &g_remasterConfig.gameData.jackMode);
     helpMarker("Selects the JACK data set. Restart required.");
 
@@ -366,7 +374,14 @@ static void drawAdvancedTab()
     ImGui::Checkbox("Log LIFE script dispatch", &g_remasterConfig.debug.logLifeScripts);
     ImGui::Checkbox("Dump LIFE scripts on startup", &g_remasterConfig.debug.dumpLifeScripts);
     ImGui::Checkbox("Generate native LIFE scripts", &g_remasterConfig.debug.generateNativeLifeScripts);
+#ifdef AITD_RANDOMIZER_EDITION
+    ImGui::BeginDisabled();
     ImGui::Checkbox("Enable native LIFE scripts", &g_remasterConfig.debug.enableNativeLifeScripts);
+    ImGui::EndDisabled();
+    helpMarker("Always off in the AITD Randomizer edition: the randomized game is in LISTLIFE.PAK.");
+#else
+    ImGui::Checkbox("Enable native LIFE scripts", &g_remasterConfig.debug.enableNativeLifeScripts);
+#endif
     ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.35f, 1.0f), "Diagnostic options may affect performance and require a restart.");
 }
 

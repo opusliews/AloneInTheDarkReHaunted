@@ -45,6 +45,9 @@ void initNativeLifeScripts()
 {
     s_nativeLifeScripts.clear();
 
+#ifdef AITD_RANDOMIZER_EDITION
+    g_remasterConfig.debug.enableNativeLifeScripts = false;   // never: see configRemaster.cpp
+#endif
     if (g_remasterConfig.debug.enableNativeLifeScripts)
     {
         if (g_gameId == AITD1)
