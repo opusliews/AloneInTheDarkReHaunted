@@ -2032,6 +2032,71 @@ void osystem_drawFoundObjectBackground()
 
     submitHDBackground(gameViewId);
 }
+// Dark room (LIGHT 0, lightOff != 0), as the original INDARK.EXE draws it: the screen is
+// black except a circle of radius 30 pixels of the 320x200 screen around the light source
+// (the LIGHT_OBJECT actor's on-screen centre), which shows the normal frame. 320x200 pixels
+// are not square on a 4:3 display, so the circle appears as a tall ellipse
+// (References/darkmaze.png). Original: FUN_2763_001f clears the old box, then
+// FUN_2755_0004(lightX, lightY, 30, 30, 7, 0) copies the circle (Research/
+// DarkRoom_F2_R6_Investigation.md). Drawn like osystem_drawBlackScreen: in front of the 3D
+// scene, behind the UI, so messages stay visible.
+void osystem_drawDarkMask(int lightX, int lightY)
+{
+    static const int NO_LIGHT = 20000;
+    static const float RADIUS = 30.0f;
+    static const int SEGMENTS = 48;
+    if (lightX == NO_LIGHT || lightY == NO_LIGHT)
+    {
+        osystem_drawBlackScreen();
+        return;
+    }
+
+    bgfx::VertexLayout layout;
+    layout
+        .begin()
+        .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
+        .add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Uint8, true)
+        .end();
+
+    bgfx::TransientVertexBuffer transientBuffer;
+    bgfx::allocTransientVertexBuffer(&transientBuffer, SEGMENTS * 6, layout);
+
+    struct sVertice
+    {
+        float position[3];
+        uint32_t color;
+    };
+    sVertice* v = (sVertice*)transientBuffer.data;
+    const uint32_t black = 0xFF000000;
+    const float cx = (float)lightX, cy = (float)lightY;
+    // Each circle segment is extended far beyond the screen: the quads between the circle
+    // and their far points cover everything outside the circle.
+    const float EXTENT = 2000.0f;
+    auto put = [&](float x, float y) {
+        v->position[0] = x; v->position[1] = y; v->position[2] = 100.f;
+        v->color = black;
+        v++;
+    };
+    for (int i = 0; i < SEGMENTS; i++)
+    {
+        const float a0 = 6.2831853f * i / SEGMENTS, a1 = 6.2831853f * (i + 1) / SEGMENTS;
+        const float c0 = cosf(a0), s0 = sinf(a0), c1 = cosf(a1), s1 = sinf(a1);
+        const float ix0 = cx + RADIUS * c0, iy0 = cy + RADIUS * s0;
+        const float ix1 = cx + RADIUS * c1, iy1 = cy + RADIUS * s1;
+        const float ox0 = cx + EXTENT * c0, oy0 = cy + EXTENT * s0;
+        const float ox1 = cx + EXTENT * c1, oy1 = cy + EXTENT * s1;
+        put(ix0, iy0); put(ox0, oy0); put(ox1, oy1);
+        put(ix0, iy0); put(ox1, oy1); put(ix1, iy1);
+    }
+
+    bgfx::setState(0 | BGFX_STATE_WRITE_RGB
+        | BGFX_STATE_WRITE_A
+        | BGFX_STATE_MSAA
+    );
+    bgfx::setVertexBuffer(0, &transientBuffer);
+    bgfx::submit(gameViewId, getFlatShader());
+}
+
 void osystem_drawBlackScreen()
 {
     bgfx::VertexLayout layout;

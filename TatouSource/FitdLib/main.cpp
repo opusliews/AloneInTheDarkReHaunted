@@ -3925,6 +3925,14 @@ void AllRedraw(int flagFlip)
     SetClip(0, 0, 319, 199);
     NbLogBoxs = 0;
 
+    // Original INDARK.EXE: no light object -> no light position (20000); otherwise the
+    // position is updated below when the LIGHT_OBJECT actor is drawn on screen.
+    if (g_gameId == AITD1 && CVars[getCVarsIdx(LIGHT_OBJECT)] == -1)
+    {
+        lightX = 20000;
+        lightY = 20000;
+    }
+
     // Safety: If the object draw list is empty, force regeneration (prevents 3D objects from disappearing)
     if (NbAffObjets == 0 && !lightOff) {
         GenereActiveList();
@@ -4157,8 +4165,10 @@ void AllRedraw(int flagFlip)
             //mainDrawSub1();
         }
     }
-    else
+    else if (g_gameId == AITD1)
     {
+        // Dark room (LIGHT 0): black except the light circle (osystem_drawDarkMask).
+        osystem_drawDarkMask(lightX, lightY);
     }
 
     //    osystem_stopFrame();
@@ -5711,7 +5721,9 @@ int drawTextOverlay(void)
 
     currentMessage = messageTable;
 
-    if (lightOff == 0)
+    // Messages are drawn in dark rooms too ("This room is in the dark!" is queued by the
+    // same script that turns the light off); the darkness mask sits behind the UI.
+    if (lightOff == 0 || g_gameId == AITD1)
     {
         int i;
 
