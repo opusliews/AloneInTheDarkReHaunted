@@ -294,11 +294,15 @@ void StartFrame()
             // Its real state is var 7 (set to 1 by the matches/lighter scripts LIFE 205/351/429,
             // back to 0 by the lamp's LIFE 9 when the oil runs out). Without this, holding an
             // unlit lamp glowed (user report 2026-10-16).
-            if (g_gameId == AITD1 && heldObjIdx == 13 && vars)
+            if (g_gameId == AITD1)
             {
-                const bool lit = vars[7] == 1;
-                isLitLantern = lit;
-                isUnlitLantern = !lit;
+                // In AITD1 only the oil lamp is a lantern. OBJ 2 ("Actions", held whenever
+                // nothing else is) has found body 269 = LANTERN_BODY_NUM, so holding nothing
+                // counted as "unlit lantern in hand" and the real lamp's in-hand state was
+                // never cleared after putting it down (no glow for a placed lamp).
+                const bool lit = heldObjIdx == 13 && vars && vars[7] == 1;
+                isLitLantern = heldObjIdx == 13 && lit;
+                isUnlitLantern = heldObjIdx == 13 && !lit;
             }
 
             if (isLitLantern || isUnlitLantern)
