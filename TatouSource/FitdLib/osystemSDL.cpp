@@ -158,6 +158,7 @@ int FitdInit(int argc, char* argv[])
         char buf[8] = {};
         if (GetEnvironmentVariableA("AITD_STRICT_SELFTEST", buf, sizeof(buf)) && buf[0] == '1')
         {
+            TRAIL("self-test: overrunning a 24-byte heap block");
             volatile char* p = (volatile char*)malloc(24);
             for (int i = 0; i < 96; i++) p[i] = (char)0xAB;
             strictHeapCheck("self-test (AITD_STRICT_SELFTEST=1)");

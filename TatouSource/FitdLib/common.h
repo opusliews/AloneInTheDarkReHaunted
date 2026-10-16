@@ -11,6 +11,7 @@
 #define _COMMON_H_
 
 #include "config.h"
+#include "eventTrail.h"
 #include "platform_compat.h"
 
 #ifdef USE_IMGUI

@@ -2119,6 +2119,7 @@ void InitViewedRoomList()
 
 void DeleteObjet(int index) // remove actor
 {
+    TRAIL("DeleteObjet actor %d (obj %d)", index, (int)ListObjets[index].indexInWorld);
     tObject* actorPtr = &ListObjets[index];
 
     if (actorPtr->indexInWorld == -2) // flow
@@ -2636,6 +2637,7 @@ void InitView()
     resetAnim2D();
 
     NumCamera = NewNumCamera;
+    TRAIL("camera %d (room %d)", (int)NewNumCamera, (int)currentRoom);
 
     assert(NewNumCamera < roomDataTable[currentRoom].numCameraInRoom);
 
@@ -2851,6 +2853,7 @@ void DeleteInventoryObjet(int objIdx)
 
 void deleteObject(int objIdx)
 {
+    TRAIL("deleteObject obj %d", objIdx);
     tWorldObject* objPtr;
     int actorIdx;
     tObject* actorPtr;
@@ -4299,6 +4302,7 @@ int CheckObjectCol(int actorIdx, ZVStruct* zvPtr)
 
 void take(int objIdx)
 {
+    TRAIL("take obj %d", objIdx);
     tWorldObject* objPtr = &ListWorldObjets[objIdx];
 
     if (numObjInInventoryTable[currentInventory] >= INVENTORY_SIZE)
@@ -4983,6 +4987,7 @@ int checkLineProjectionWithActors(int actorIdx, int X, int Y, int Z, int beta, i
 
 void PutAtObjet(int objIdx, int objIdxToPutAt)
 {
+    TRAIL("put_at obj %d at obj %d", objIdx, objIdxToPutAt);
     tWorldObject* objPtr = &ListWorldObjets[objIdx];
     tWorldObject* objPtrToPutAt = &ListWorldObjets[objIdxToPutAt];
 
@@ -5785,6 +5790,7 @@ int drawTextOverlay(void)
 
 void makeMessage(int messageIdx)
 {
+    TRAIL("message %d", messageIdx);
     textEntryStruct* messagePtr;
 
     messagePtr = getTextFromIdx(messageIdx);
@@ -5816,6 +5822,7 @@ void makeMessage(int messageIdx)
 
 void hit(int animNumber, int arg_2, int arg_4, int arg_6, int hitForce, int arg_A)
 {
+    TRAIL("hit() actor %d anim %d force %d", currentProcessedActorIdx, animNumber, hitForce);
     if (InitAnim(animNumber, 0, arg_A))
     {
         currentProcessedActorPtr->animActionANIM = animNumber;

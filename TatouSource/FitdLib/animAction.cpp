@@ -92,6 +92,9 @@ void GereFrappe(void)
 
                 actorPtr2->HIT_BY = currentProcessedActorIdx;
                 actorPtr2->hitForce = currentProcessedActorPtr->hitForce;
+                TRAIL("melee hit: actor %d (obj %d) hits actor %d (obj %d) force %d", currentProcessedActorIdx,
+                    (int)currentProcessedActorPtr->indexInWorld, (int)currentProcessedActorPtr->COL[i],
+                    (int)actorPtr2->indexInWorld, (int)actorPtr2->hitForce);
 
                 // Spawn blood particles on melee hit
                 spawnBloodAtActor(currentProcessedActorPtr->COL[i], static_cast<float>(currentProcessedActorPtr->hitForce));

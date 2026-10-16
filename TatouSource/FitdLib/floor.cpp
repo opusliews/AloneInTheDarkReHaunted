@@ -16,6 +16,7 @@ std::vector<cameraDataStruct> g_currentFloorCameraData;
 
 void LoadEtage(int floorNumber)
 {
+    TRAIL("LoadEtage floor %d", floorNumber);
     int i;
     int expectedNumberOfRoom;
     int expectedNumberOfCamera;

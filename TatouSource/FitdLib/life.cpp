@@ -175,6 +175,7 @@ void resetRotateParam(void)
 
 void throwObj(int animThrow, int frameThrow, int arg_4, int objToThrowIdx, int throwRotated, int throwForce, int animNext)
 {
+    TRAIL("throwObj actor %d throws obj %d (anim %d force %d)", currentProcessedActorIdx, objToThrowIdx, animThrow, throwForce);
     if (InitAnim(animThrow, 2, animNext))
     {
         currentProcessedActorPtr->animActionANIM = animThrow;
@@ -786,6 +787,9 @@ void processLife(int lifeNum, bool callFoundLife)
     currentLifePtr = randomizerExperimentPatchLife(lifeNum, currentLifePtr);
     currentLifePtr = lifeBugfixPatchLife(lifeNum, currentLifePtr);
     currentLifePtr = scenarioPatchLife(lifeNum, currentLifePtr);
+#ifdef AITD_HEAP_STRICT
+    char* const trailLifeStart = currentLifePtr;
+#endif
     if (fakeDoorExperimentHandleLife(lifeNum))
         return;
 
@@ -1083,6 +1087,29 @@ void processLife(int lifeNum, bool callFoundLife)
 
             if (g_remasterConfig.debug.logLifeScripts)
                 printf(LIFE_TAG "Actor %d | Life %d | Opcode 0x%02X -> %s" CON_RESET "\n", currentProcessedActorIdx, lifeNum, currentOpcode & 0x7FFF, getLifeMacroName(opcodeLocated));
+
+#ifdef AITD_HEAP_STRICT
+            switch (opcodeLocated)
+            {
+            case LM_HIT: case LM_MESSAGE: case LM_MESSAGE_VALUE: case LM_FOUND: case LM_LIFE:
+            case LM_DELETE: case LM_TAKE: case LM_IN_HAND: case LM_READ: case LM_SPECIAL:
+            case LM_SAMPLE: case LM_TYPE: case LM_GAME_OVER: case LM_MUSIC: case LM_STAGE:
+            case LM_FOUND_NAME: case LM_FOUND_FLAG: case LM_FOUND_LIFE: case LM_CAMERA_TARGET:
+            case LM_DROP: case LM_FIRE: case LM_FOUND_BODY: case LM_PUT: case LM_C_VAR:
+            case LM_SAMPLE_THEN: case LM_LIGHT: case LM_SHAKING: case LM_INVENTORY: case LM_PUT_AT:
+            case LM_HIT_OBJECT: case LM_REP_SAMPLE: case LM_THROW: case LM_WATER: case LM_PICTURE:
+            case LM_STOP_SAMPLE: case LM_NEXT_MUSIC: case LM_FADE_MUSIC: case LM_STOP_HIT_OBJECT:
+            case LM_END_SEQUENCE: case LM_SAMPLE_THEN_REPEAT: case LM_WAIT_GAME_OVER:
+            case LM_STAGE_LIFE: case LM_PLUIE: case LM_BODY: case LM_LIFE_MODE:
+                TRAIL("LIFE %d @%d actor %d (obj %d): %s", lifeNum,
+                    (int)(currentLifePtr - 2 - trailLifeStart), currentProcessedActorIdx,
+                    currentProcessedActorPtr ? (int)currentProcessedActorPtr->indexInWorld : -1,
+                    getLifeMacroName(opcodeLocated));
+                break;
+            default:
+                break;
+            }
+#endif
 
             // Apply bytecode patches BEFORE opcode execution
             applyBytecodePreOpcodePatches(lifeNum, opcodeLocated, currentProcessedActorPtr);

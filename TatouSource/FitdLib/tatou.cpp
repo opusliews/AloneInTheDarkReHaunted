@@ -169,6 +169,7 @@ void setCameraTarget(int x,int y,int z,int alpha,int beta,int gamma,int time)
 
 void playSound(int num)
 {
+    TRAIL("playSound %d", num);
 	if(num == -1)
 		return;
 

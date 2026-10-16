@@ -75,6 +75,7 @@ int getNumberOfRoom()
 
 void ChangeSalle(int roomNumber)
 {
+    TRAIL("ChangeSalle room %d (from %d)", roomNumber, (int)currentRoom);
     int i;
     int cameraVar0;
     int cameraVar1;

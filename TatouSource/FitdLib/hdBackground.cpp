@@ -281,6 +281,7 @@ unsigned char* loadImageFromMemory(const unsigned char* buffer, int bufferSize, 
 // Returns nullptr if no HD version found
 HDBackgroundInfo* loadHDBackground(const char* backgroundName, int cameraIdx, const char* suffix)
 {
+    TRAIL("loadHDBackground %s cam %d %s", backgroundName ? backgroundName : "?", cameraIdx, suffix ? suffix : "");
     if (!isHDBackgroundEnabled())
     {
         return nullptr;

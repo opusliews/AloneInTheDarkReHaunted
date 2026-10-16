@@ -1255,6 +1255,7 @@ int fadeMusic(int param1, int param2, int param3)
 
 void playMusic(int musicNumber)
 {
+    TRAIL("playMusic %d", musicNumber);
 	if(currentMusic == musicNumber)
 		return;
 

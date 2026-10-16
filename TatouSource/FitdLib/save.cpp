@@ -130,6 +130,7 @@ void saveInterpolatedValue(RealValue* pRotateStruct, FILE* fHandle)
 
 int loadSave(int saveNumber)
 {
+    TRAIL("loadSave %d", saveNumber);
     stopLoopingSounds();    // the loaded state starts without the current room's loop
     char buffer[256];
     FILE* fHandle;
@@ -1121,6 +1122,7 @@ int makeSaveFile(int entry)
 
 int makeSave(int arg0)
 {
+    TRAIL("makeSave");
     // Show save slot selection screen (arg=1 means save mode - can save to any slot)
     int selectedSlot = parseAllSaves(1);
 

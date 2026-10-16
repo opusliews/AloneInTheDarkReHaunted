@@ -266,6 +266,7 @@ void drawInventoryActions(int arg)
 
 void processInventory(void)
 {
+    TRAIL("inventory screen");
     int exitMenu = 0;
     int choice = 0;
     int firstTime = 1;
@@ -733,6 +734,7 @@ void DrawFoundWindow(int menuState, int objectName, int zoomFactor)
 
 void FoundObjet(int objIdx, int param)
 {
+    TRAIL("FoundObjet obj %d param %d", objIdx, param);
     tWorldObject* objPtr;
 
     if (objIdx < 0)

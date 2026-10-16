@@ -660,6 +660,9 @@ private:
                 fprintf(crashLogFile, "  %s\n", strictTrail[(strictTrailCount - n + i) % STRICT_TRAIL]);
             if (dumped) fprintf(crashLogFile, "Minidump: %s\n", dumpPath);
             else fprintf(crashLogFile, "Minidump creation failed: Win32 error %lu\n", dumpError);
+            fflush(crashLogFile);
+            void eventTrailWrite(FILE*);
+            eventTrailWrite(crashLogFile);
             fprintf(crashLogFile, "=== End of strict report ===\n");
             fflush(crashLogFile);
         }

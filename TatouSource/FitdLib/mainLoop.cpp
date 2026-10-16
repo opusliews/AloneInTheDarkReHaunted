@@ -344,6 +344,7 @@ void PlayWorld(int allowSystemMenu, int deltaTime)
 			snprintf(state, sizeof(state), "floor %d room %d camera %d (abs %d) lightOff %d",
 				(int)g_currentFloor, (int)currentRoom, (int)NumCamera, (int)getAbsoluteCameraIndex(), (int)lightOff);
 			strictHeapCheck(state);
+			eventTrailNextFrame();
 		}
 #endif
 
@@ -355,6 +356,17 @@ void PlayWorld(int allowSystemMenu, int deltaTime)
 		localKey = key;
 		localJoyD = JoyD;
 		localClick = Click;
+#ifdef AITD_HEAP_STRICT
+		{
+			static int s_key = 0, s_joy = 0, s_click = 0, s_health = -32768;
+			if (localKey != s_key || localJoyD != s_joy || localClick != s_click)
+				TRAIL("input key %d joy %d click %d", (int)localKey, (int)localJoyD, (int)localClick);
+			s_key = localKey; s_joy = localJoyD; s_click = localClick;
+			if (vars && vars[21] != s_health)
+				TRAIL("health (var 21) %d -> %d", s_health, (int)vars[21]);
+			if (vars) s_health = vars[21];
+		}
+#endif
 
         if(localKey)
         {

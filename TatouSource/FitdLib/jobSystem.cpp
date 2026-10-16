@@ -8,6 +8,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 #include "jobSystem.h"
+#include "eventTrail.h"
 #include <algorithm>
 #include <iostream>
 
@@ -141,7 +142,9 @@ void JobSystem::workerThreadMain(int threadType)
         // Execute the job
         if (job.work)
         {
+            TRAIL("job %llu type %d start", (unsigned long long)job.handle, (int)job.type);
             job.work();
+            TRAIL("job %llu type %d end", (unsigned long long)job.handle, (int)job.type);
         }
 
         // Mark job as complete

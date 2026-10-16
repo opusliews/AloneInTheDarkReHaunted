@@ -99,6 +99,9 @@ int InitAnim(int animNum,int animType, int animInfo)
         }
     }
 
+    TRAIL("anim actor %d (obj %d) %d -> %d", currentProcessedActorIdx,
+        (int)currentProcessedActorPtr->indexInWorld, (int)currentProcessedActorPtr->ANIM, animNum);
+
     if(animNum == -1)
     {
         currentProcessedActorPtr->newAnim = -2;
