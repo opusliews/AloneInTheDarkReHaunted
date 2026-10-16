@@ -103,6 +103,14 @@ extern "C" {
 // SEH wrapper around FitdMain to catch any unhandled exceptions on the game thread.
 // This is a belt-and-suspenders approach on top of the VEH in ExceptionHandler.
 // Must be a plain C-style function (no C++ destructors on stack) for __try/__except.
+#ifdef AITD_HEAP_STRICT
+// TatouScenarioStrict: per-frame heap check (exceptionHandler.h StrictHeapCheck).
+void strictHeapCheck(const char* state)
+{
+    ExceptionHandler::StrictHeapCheck(state);
+}
+#endif
+
 static int FitdMainProtected(void* unused)
 {
 #ifdef _WIN32
@@ -131,6 +139,10 @@ bool bFirst = true;
 
 int FitdInit(int argc, char* argv[])
 {
+#ifdef AITD_HEAP_STRICT
+    if (ExceptionHandler::StrictDumpHelperMain())   // TatouScenarioStrict's dump helper process
+        ExitProcess(0);
+#endif
     scenarioUseExeDirectory();   // TatouScenario / randomizer edition: config, HD and data beside the exe
 
 #ifdef WIN32
@@ -139,7 +151,21 @@ int FitdInit(int argc, char* argv[])
     // Initialize exception handler for crash logging and graceful recovery
     // Set to true to try continuing on heap corruption (logs error and continues)
     enableConsoleColors();
+#ifdef AITD_HEAP_STRICT
+    ExceptionHandler::Initialize(false);   // TatouScenarioStrict: stop on heap corruption
+    {
+        // Self-test of the stop path: AITD_STRICT_SELFTEST=1 overruns a heap block on purpose.
+        char buf[8] = {};
+        if (GetEnvironmentVariableA("AITD_STRICT_SELFTEST", buf, sizeof(buf)) && buf[0] == '1')
+        {
+            volatile char* p = (volatile char*)malloc(24);
+            for (int i = 0; i < 96; i++) p[i] = (char)0xAB;
+            strictHeapCheck("self-test (AITD_STRICT_SELFTEST=1)");
+        }
+    }
+#else
     ExceptionHandler::Initialize(true);
+#endif
 
     printf(SDL_OK "Exception handler initialized - crash logs will be written to crash_log.txt\n");
     printf(SDL_TAG "Memory tracking active - memory debug log will be written to memory_debug.log\n");

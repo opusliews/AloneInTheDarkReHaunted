@@ -336,6 +336,17 @@ void PlayWorld(int allowSystemMenu, int deltaTime)
 		// Process pending job callbacks from background threads
 		JobSystem::instance().processPendingCallbacks();
 
+#ifdef AITD_HEAP_STRICT
+		{
+			// TatouScenarioStrict: validate the heap every frame; the state goes in the report.
+			void strictHeapCheck(const char* state);
+			char state[160];
+			snprintf(state, sizeof(state), "floor %d room %d camera %d (abs %d) lightOff %d",
+				(int)g_currentFloor, (int)currentRoom, (int)NumCamera, (int)getAbsoluteCameraIndex(), (int)lightOff);
+			strictHeapCheck(state);
+		}
+#endif
+
 		process_events();
 
 		// Auto-hide cursor during gameplay after inactivity

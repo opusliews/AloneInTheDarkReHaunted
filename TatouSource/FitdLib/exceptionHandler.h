@@ -147,10 +147,15 @@ private:
             MiniDumpScanMemory |
             MiniDumpWithThreadInfo |
             MiniDumpWithUnloadedModules |
-            MiniDumpWithFullMemoryInfo);
+            MiniDumpWithFullMemoryInfo
+#ifdef AITD_HEAP_STRICT
+            // TatouScenarioStrict: globals and the whole heap, to find what corrupted it.
+            | MiniDumpWithDataSegs | MiniDumpWithPrivateReadWriteMemory | MiniDumpWithHandleData
+#endif
+            );
 
         BOOL success = MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), dumpFile,
-            dumpType, &exception, nullptr, nullptr);
+            dumpType, exceptionInfo ? &exception : nullptr, nullptr, nullptr);
         DWORD result = success ? ERROR_SUCCESS : GetLastError();
         CloseHandle(dumpFile);
 
@@ -172,6 +177,12 @@ private:
     static LONG WINAPI VectoredHandler(EXCEPTION_POINTERS* exceptionInfo)
     {
         DWORD code = exceptionInfo->ExceptionRecord->ExceptionCode;
+
+#ifdef AITD_HEAP_STRICT
+        // TatouScenarioStrict: never continue on a corrupted heap; dump at the detection.
+        if (code == 0xC0000374 || code == STATUS_BREAKPOINT)
+            StrictStop(exceptionInfo, code == 0xC0000374 ? "HEAP_CORRUPTION" : "CRT_BREAKPOINT", nullptr);
+#endif
 
         // STATUS_BREAKPOINT (0x80000003) - raised by __debugbreak() in CRT
         // debug heap when corruption is detected. Skip the int3 instruction
@@ -481,6 +492,241 @@ private:
         fflush(crashLogFile);
     }
 
+#ifdef AITD_HEAP_STRICT
+    // TatouScenarioStrict (Research/Crash_2026-10-16_createAITD1Mask.md): the stock handler
+    // skips heap corruption, which hides the faulty write and crashes much later elsewhere.
+    // This build stops instead, writes a full dump at the first detection, and checks the
+    // heap itself every game frame (StrictHeapCheck) to narrow down when it was corrupted.
+    static const int STRICT_TRAIL = 24;
+    static inline char strictTrail[STRICT_TRAIL][192] = {};   // game-state changes, ring buffer
+    static inline char strictLastState[160] = "";
+    static inline int strictTrailCount = 0;
+    static inline long long strictFrame = 0, strictLastGoodFrame = 0;
+    static inline double strictLastGoodTime = 0.0;
+
+    static double StrictNow()
+    {
+        static LARGE_INTEGER freq = {}, start = {};
+        if (!freq.QuadPart) { QueryPerformanceFrequency(&freq); QueryPerformanceCounter(&start); }
+        LARGE_INTEGER t; QueryPerformanceCounter(&t);
+        return double(t.QuadPart - start.QuadPart) / double(freq.QuadPart);
+    }
+
+    // The dump is written by a helper process (this exe, --strict-dump-helper <pid>) started at
+    // launch: an in-process MiniDumpWriteDump allocates from the corrupted heap, re-raises the
+    // corruption and deadlocks. Request/reply through a shared block and two events, so the
+    // stop itself needs no heap.
+    struct StrictShared
+    {
+        DWORD threadId;
+        ULONG64 exceptionPointers;     // address in the game process (ClientPointers = TRUE)
+        DWORD result;                  // Win32 error, 0 = written
+        char dumpPath[2048];
+    };
+    static inline StrictShared* strictShared = nullptr;
+    static inline HANDLE strictRequest = nullptr, strictDone = nullptr;
+    static inline volatile DWORD strictStopThread = 0;
+
+    static MINIDUMP_TYPE StrictDumpType()
+    {
+        return static_cast<MINIDUMP_TYPE>(MiniDumpWithIndirectlyReferencedMemory | MiniDumpScanMemory |
+            MiniDumpWithThreadInfo | MiniDumpWithUnloadedModules | MiniDumpWithFullMemoryInfo |
+            MiniDumpWithDataSegs | MiniDumpWithPrivateReadWriteMemory | MiniDumpWithHandleData);
+    }
+
+    static void StrictStartHelper()
+    {
+        DWORD pid = GetCurrentProcessId();
+        char name[96];
+        sprintf_s(name, sizeof(name), "Local\\AITDStrictMap_%lu", pid);
+        HANDLE map = CreateFileMappingA(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, sizeof(StrictShared), name);
+        if (!map) return;
+        strictShared = (StrictShared*)MapViewOfFile(map, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(StrictShared));
+        sprintf_s(name, sizeof(name), "Local\\AITDStrictReq_%lu", pid);
+        strictRequest = CreateEventA(nullptr, FALSE, FALSE, name);
+        sprintf_s(name, sizeof(name), "Local\\AITDStrictDone_%lu", pid);
+        strictDone = CreateEventA(nullptr, FALSE, FALSE, name);
+
+        char exe[MAX_PATH] = {};
+        GetModuleFileNameA(nullptr, exe, MAX_PATH);
+        char cmd[MAX_PATH + 64];
+        sprintf_s(cmd, sizeof(cmd), "\"%s\" --strict-dump-helper %lu", exe, pid);
+        STARTUPINFOA si = { sizeof(si) };
+        PROCESS_INFORMATION pi = {};
+        if (CreateProcessA(nullptr, cmd, nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi))
+        {
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+        }
+        else
+        {
+            strictShared = nullptr;      // no helper: StrictStop falls back to an in-process dump
+        }
+    }
+
+public:
+    // Helper process side. Returns true (and the process should exit) if this is the helper.
+    static bool StrictDumpHelperMain()
+    {
+        const char* arg = strstr(GetCommandLineA(), "--strict-dump-helper ");
+        if (!arg) return false;
+        DWORD pid = strtoul(arg + 21, nullptr, 10);
+        HANDLE proc = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
+        char name[96];
+        sprintf_s(name, sizeof(name), "Local\\AITDStrictMap_%lu", pid);
+        HANDLE map = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, name);
+        sprintf_s(name, sizeof(name), "Local\\AITDStrictReq_%lu", pid);
+        HANDLE req = OpenEventA(SYNCHRONIZE | EVENT_MODIFY_STATE, FALSE, name);
+        sprintf_s(name, sizeof(name), "Local\\AITDStrictDone_%lu", pid);
+        HANDLE done = OpenEventA(SYNCHRONIZE | EVENT_MODIFY_STATE, FALSE, name);
+        if (!proc || !map || !req || !done) return true;
+        StrictShared* sh = (StrictShared*)MapViewOfFile(map, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(StrictShared));
+        HANDLE waits[2] = { req, proc };
+        if (!sh || WaitForMultipleObjects(2, waits, FALSE, INFINITE) != WAIT_OBJECT_0) return true;
+
+        HANDLE file = CreateFileA(sh->dumpPath, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file == INVALID_HANDLE_VALUE) { sh->result = GetLastError(); SetEvent(done); return true; }
+        MINIDUMP_EXCEPTION_INFORMATION mei = {};
+        mei.ThreadId = sh->threadId;
+        mei.ExceptionPointers = (PEXCEPTION_POINTERS)sh->exceptionPointers;
+        mei.ClientPointers = TRUE;
+        BOOL ok = MiniDumpWriteDump(proc, pid, file, StrictDumpType(), sh->exceptionPointers ? &mei : nullptr, nullptr, nullptr);
+        sh->result = ok ? 0 : GetLastError();
+        CloseHandle(file);
+        SetEvent(done);
+        return true;
+    }
+
+private:
+    [[noreturn]] static void StrictStop(EXCEPTION_POINTERS* exceptionInfo, const char* what, const char* detail)
+    {
+        DWORD self = GetCurrentThreadId();
+        if (InterlockedCompareExchange((volatile LONG*)&strictStopThread, (LONG)self, 0) != 0)
+        {
+            if (strictStopThread == self)            // the report itself hit the corrupted heap
+                TerminateProcess(GetCurrentProcess(), 0xC0000374);
+            for (;;) Sleep(INFINITE);                // another thread is writing the report
+        }
+
+        char dumpPath[2048] = {};
+        DWORD dumpError = ERROR_SUCCESS;
+        bool dumped = false;
+        SYSTEMTIME now;
+        GetLocalTime(&now);
+        char dumpName[128];
+        sprintf_s(dumpName, sizeof(dumpName), "strict_dump_%04u%02u%02u_%02u%02u%02u_p%lu_t%lu.dmp",
+            now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond, GetCurrentProcessId(), self);
+        if (strictShared && BuildDiagnosticPath(dumpPath, sizeof(dumpPath), dumpName))
+        {
+            strcpy_s(strictShared->dumpPath, sizeof(strictShared->dumpPath), dumpPath);
+            strictShared->threadId = self;
+            strictShared->exceptionPointers = (ULONG64)exceptionInfo;
+            strictShared->result = ERROR_TIMEOUT;
+            SetEvent(strictRequest);
+            if (WaitForSingleObject(strictDone, 10 * 60 * 1000) == WAIT_OBJECT_0)
+                dumpError = strictShared->result;
+            else
+                dumpError = ERROR_TIMEOUT;
+            dumped = dumpError == ERROR_SUCCESS;
+        }
+        else
+        {
+            dumped = WriteMiniDump(exceptionInfo, dumpPath, sizeof(dumpPath), &dumpError);
+        }
+
+        if (!crashLogFile) OpenCrashLog("a");
+        if (crashLogFile)
+        {
+            time_t now = time(nullptr);
+            char timeStr[64];
+            ctime_s(timeStr, sizeof(timeStr), &now);
+            timeStr[strlen(timeStr) - 1] = '\0';
+            fprintf(crashLogFile, "\n=== STRICT STOP: %s at %s (%.3f s after start) ===\n", what, timeStr, StrictNow());
+            if (exceptionInfo)
+            {
+                fprintf(crashLogFile, "Exception code 0x%08lX at 0x%p, thread %lu\n",
+                    exceptionInfo->ExceptionRecord->ExceptionCode,
+                    exceptionInfo->ExceptionRecord->ExceptionAddress, GetCurrentThreadId());
+                LogAddressModule(crashLogFile, "Module",
+                    reinterpret_cast<DWORD64>(exceptionInfo->ExceptionRecord->ExceptionAddress));
+            }
+            if (detail)
+                fprintf(crashLogFile, "%s\n", detail);
+            fprintf(crashLogFile, "Game frame %lld; last frame with a valid heap: %lld (%.3f s after start)\n",
+                strictFrame, strictLastGoodFrame, strictLastGoodTime);
+            fprintf(crashLogFile, "Recent game-state changes (oldest first):\n");
+            int n = strictTrailCount < STRICT_TRAIL ? strictTrailCount : STRICT_TRAIL;
+            for (int i = 0; i < n; i++)
+                fprintf(crashLogFile, "  %s\n", strictTrail[(strictTrailCount - n + i) % STRICT_TRAIL]);
+            if (dumped) fprintf(crashLogFile, "Minidump: %s\n", dumpPath);
+            else fprintf(crashLogFile, "Minidump creation failed: Win32 error %lu\n", dumpError);
+            fprintf(crashLogFile, "=== End of strict report ===\n");
+            fflush(crashLogFile);
+        }
+
+        char message[1024];
+        sprintf_s(message, sizeof(message),
+            "TatouScenarioStrict stopped: %s.\n\nPlease send crash_log.txt and the newest "
+            "crash_dump_*.dmp from the exe folder.\n\n%s", what, dumped ? dumpPath : "(minidump failed)");
+        char selftest[8] = {};
+        if (!GetEnvironmentVariableA("AITD_STRICT_SELFTEST", selftest, sizeof(selftest)))
+            MessageBoxA(NULL, message, "TatouScenarioStrict", MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SYSTEMMODAL);
+        TerminateProcess(GetCurrentProcess(), 0xC0000374);
+        for (;;) Sleep(INFINITE);
+    }
+
+public:
+    // Called once per game frame (game thread) with a short game-state description.
+    static void StrictHeapCheck(const char* state)
+    {
+        static int every = 0;
+        static double total = 0.0, worst = 0.0, lastReport = 0.0;
+        static long long checks = 0;
+        if (!every)
+        {
+            char buf[32] = {};
+            int v = GetEnvironmentVariableA("AITD_HEAP_CHECK_EVERY", buf, sizeof(buf)) ? atoi(buf) : 0;
+            every = v > 0 ? v : 1;
+        }
+        strictFrame++;
+
+        if (strcmp(strictLastState, state) != 0)
+        {
+            strcpy_s(strictLastState, sizeof(strictLastState), state);
+            sprintf_s(strictTrail[strictTrailCount % STRICT_TRAIL], sizeof(strictTrail[0]),
+                "frame %lld, %.3f s: %s", strictFrame, StrictNow(), state);
+            strictTrailCount++;
+        }
+
+        if (strictFrame % every) return;
+        double t0 = StrictNow();
+        BOOL ok = HeapValidate(GetProcessHeap(), 0, nullptr);
+        double dt = (StrictNow() - t0) * 1000.0;
+        if (!ok)
+        {
+            char detail[320];
+            sprintf_s(detail, sizeof(detail), "HeapValidate(process heap) FAILED in the game loop at: %s", state);
+            StrictStop(nullptr, "HEAP_VALIDATE_FAILED", detail);
+        }
+        strictLastGoodFrame = strictFrame;
+        strictLastGoodTime = StrictNow();
+        checks++; total += dt; if (dt > worst) worst = dt;
+        if (strictLastGoodTime - lastReport > 60.0)
+        {
+            lastReport = strictLastGoodTime;
+            if (!crashLogFile) OpenCrashLog("a");
+            if (crashLogFile)
+            {
+                fprintf(crashLogFile, "[strict] %.0f s: %lld heap checks (every %d frames), avg %.2f ms, max %.2f ms\n",
+                    strictLastGoodTime, checks, every, total / checks, worst);
+                fclose(crashLogFile);
+                crashLogFile = nullptr;
+            }
+        }
+    }
+
+#endif
+
 public:
     static void Initialize(bool continueOnHeapCorruption = true)
     {
@@ -497,6 +743,10 @@ public:
 
         // Set unhandled exception filter as fallback for anything VEH doesn't catch
         SetUnhandledExceptionFilter(UnhandledExceptionFilter);
+
+#ifdef AITD_HEAP_STRICT
+        StrictStartHelper();
+#endif
 
 #ifdef _DEBUG
         if (continueOnHeapCorruption)
@@ -528,6 +778,10 @@ public:
             fprintf(crashLogFile, "Vectored Exception Handler: %s\n", vehHandle ? "REGISTERED" : "FAILED");
             fprintf(crashLogFile, "Crash output directory: executable directory\n");
             fprintf(crashLogFile, "Minidumps: ENABLED\n");
+#ifdef AITD_HEAP_STRICT
+            fprintf(crashLogFile, "STRICT BUILD (TatouScenarioStrict): stops on heap corruption, full dumps, heap check every game frame\n");
+            fprintf(crashLogFile, "Strict dump helper process: %s\n", strictShared ? "STARTED" : "FAILED (in-process dumps)");
+#endif
 #ifdef _DEBUG
             fprintf(crashLogFile, "CRT debug heap checks: REDUCED (DOS compatibility mode)\n");
             fprintf(crashLogFile, "CRT report hook: INSTALLED\n");
@@ -584,6 +838,11 @@ public:
             printf("WARNING: CRT debug break in %s - skipped\n", context);
             return EXCEPTION_EXECUTE_HANDLER;
         }
+
+#ifdef AITD_HEAP_STRICT
+        if (code == EXCEPTION_ACCESS_VIOLATION)
+            StrictStop(exceptionInfo, "ACCESS_VIOLATION", context);
+#endif
 
         // For access violations and other real crashes, write FULL diagnostic log
         // with stack trace, symbol names, and access violation details (read/write addr)

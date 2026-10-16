@@ -9,6 +9,11 @@ option(AITD_HD_INSPECTOR_BUILD
     "Build the Object Inspector as TatouHD with an independent HD config" OFF)
 option(AITD_SCENARIO_BUILD
     "Build TatouScenario: loads test scenario files (SCENARIO_TESTING.md)" OFF)
+option(AITD_HEAP_STRICT
+    "Build TatouScenarioStrict: TatouScenario that stops and dumps on heap corruption, with a per-frame heap check" OFF)
+if(AITD_HEAP_STRICT)
+    set(AITD_SCENARIO_BUILD ON CACHE BOOL "" FORCE)
+endif()
 option(AITD_RANDOMIZER_EDITION
     "Build the randomizer's ReHaunted edition: no embedded game data (reads the player's own files)" OFF)
 
