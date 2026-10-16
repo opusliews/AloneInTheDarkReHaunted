@@ -711,6 +711,18 @@ void osystem_stopLoopingSamples()
     }
 }
 
+// Scales the looping samples only. 1.0 is the original volume (SoLoud's default voice
+// volume); the factor is clamped so a loop is never louder than in the original game.
+void osystem_setLoopingVolume(float factor)
+{
+    if (!gSoloud) return;
+    if (factor > 1.0f) factor = 1.0f;
+    if (factor < 0.0f) factor = 0.0f;
+    for (auto& sfx : g_activeSfx)
+        if (sfx.looping)
+            gSoloud->setVolume(sfx.handle, factor);
+}
+
 bool osystem_isSamplePlaying()
 {
     if (!gSoloud) return false;

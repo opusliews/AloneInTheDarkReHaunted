@@ -74,6 +74,7 @@
 	void osystem_playSample(char* samplePtr,int size);
 	void osystem_playLoopingSample(char* samplePtr, int size);
 	void osystem_stopLoopingSamples();
+	void osystem_setLoopingVolume(float factor);   // 0..1 of the original volume
 	void osystem_stopSample();
 	bool osystem_isSamplePlaying();
 	void osystem_reloadAudioArchive();

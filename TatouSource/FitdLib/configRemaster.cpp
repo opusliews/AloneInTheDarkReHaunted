@@ -86,6 +86,7 @@ void initDefaultRemasterConfig()
 
     // External music defaults
     g_remasterConfig.music.enableExternalMusic = false;
+    g_remasterConfig.music.positionalLoops = true;
     strcpy(g_remasterConfig.music.musicFolder, "music");
 
     // TTF font defaults
@@ -208,6 +209,8 @@ void loadRemasterConfig()
                 g_remasterConfig.graphics.enableWallDepth = (strcmp(value, "true") == 0 || strcmp(value, "1") == 0);
 
             // External music settings
+            else if (strcmp(key, "audio.positional_loops") == 0)
+                g_remasterConfig.music.positionalLoops = (strcmp(value, "true") == 0 || strcmp(value, "1") == 0);
             else if (strcmp(key, "music.external") == 0)
                 g_remasterConfig.music.enableExternalMusic = (strcmp(value, "true") == 0 || strcmp(value, "1") == 0);
             else if (strcmp(key, "music.folder") == 0)
@@ -469,6 +472,7 @@ void saveRemasterConfig()
     fprintf(file, "graphics.wallDepth = %s\n\n", g_remasterConfig.graphics.enableWallDepth ? "true" : "false");
 
     fprintf(file, "# External Music Settings\n");
+    fprintf(file, "audio.positional_loops = %s\n", g_remasterConfig.music.positionalLoops ? "true" : "false");
     fprintf(file, "music.external = %s\n", g_remasterConfig.music.enableExternalMusic ? "true" : "false");
     fprintf(file, "music.folder = \"%s\"\n\n", g_remasterConfig.music.musicFolder);
 

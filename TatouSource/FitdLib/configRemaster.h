@@ -89,6 +89,7 @@ struct RemasterConfig
     struct {
         bool enableExternalMusic;
         char musicFolder[256];
+        bool positionalLoops;   // looping sounds fade with distance from their source (never louder)
     } music;
 
     // TTF font settings

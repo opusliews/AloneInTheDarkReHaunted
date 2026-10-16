@@ -1224,6 +1224,13 @@ bool scenarioForcesBytecode(int lifeNum)
     for (const LifeWordPatch& patch : s_lifePatches)
         if (patch.life == lifeNum)
             return true;
+    {
+        // A patch set that replaces LISTLIFE.PAK (every seed) must run as bytecode: ReHaunted's
+        // native C++ rewrites of the original scripts would bypass it.
+        std::lock_guard<std::mutex> lock(s_overrideMutex);
+        if (s_overrides.count("LISTLIFE.PAK"))
+            return true;
+    }
 #else
     (void)lifeNum;
 #endif

@@ -10,6 +10,8 @@
 // seg 4
 
 #include "common.h"
+#include "configRemaster.h"
+#include <math.h>
 
 #ifdef PCLIKE
 #include "SDL.h"
@@ -208,19 +210,84 @@ void playSound(int num)
 static int s_lastLoopingSample = -1;
 static int s_loopFloor = -1;
 static int s_loopRoom = -1;
+static int s_loopActor = -1;          // ListObjets index of the actor whose script started the loop
+
+// Positional volume (option audio.positional_loops): full within LOOP_NEAR world units of the
+// source, fading linearly to LOOP_MIN at LOOP_FAR. Unknown source: the original volume.
+static const float LOOP_NEAR = 1500.0f;
+static const float LOOP_FAR = 8000.0f;
+static const float LOOP_MIN = 0.3f;
+
+// The talisman chimes (sample 89) are started by LIFE 186, which runs on the invisible
+// F2:R8 room controller OBJ 70 at the room origin; the sound belongs to the talisman, OBJ 110.
+static int loopSourceWorldObject(int sample)
+{
+	return sample == 89 ? 110 : -1;
+}
+
+// Source position in room coordinates of the current room; false if unknown or elsewhere.
+static bool loopSourcePosition(float& x, float& y, float& z)
+{
+	const int worldObj = loopSourceWorldObject(s_lastLoopingSample);
+	int actor = s_loopActor;
+	if (worldObj >= 0)
+	{
+		if (worldObj >= (int)ListWorldObjets.size())
+			return false;
+		const tWorldObject& wo = ListWorldObjets[worldObj];
+		if (wo.objIndex >= 0)
+			actor = wo.objIndex;
+		else
+		{
+			if (wo.stage != g_currentFloor || wo.room != currentRoom || (wo.foundFlag & 0xC000))
+				return false;
+			x = wo.x; y = wo.y; z = wo.z;
+			return true;
+		}
+	}
+	if (actor < 0 || actor >= (int)ListObjets.size())
+		return false;
+	const tObject& a = ListObjets[actor];
+	if (a.indexInWorld < 0 || a.bodyNum < 0 || a.room != currentRoom)
+		return false;
+	x = a.roomX + a.stepX; y = a.roomY + a.stepY; z = a.roomZ + a.stepZ;
+	return true;
+}
 
 void stopLoopingSounds()
 {
 	osystem_stopLoopingSamples();
 	s_lastLoopingSample = -1;
 	s_loopFloor = s_loopRoom = -1;
+	s_loopActor = -1;
 }
 
-// Called every gameplay frame.
+// Called every gameplay frame: room-change stop, then the positional volume.
 void stopLoopingSoundsOnRoomChange()
 {
-	if (s_lastLoopingSample != -1 && (g_currentFloor != s_loopFloor || currentRoom != s_loopRoom))
+	if (s_lastLoopingSample == -1)
+		return;
+	if (g_currentFloor != s_loopFloor || currentRoom != s_loopRoom)
+	{
 		stopLoopingSounds();
+		return;
+	}
+	float factor = 1.0f;
+	float sx, sy, sz;
+	if (g_remasterConfig.music.positionalLoops && currentCameraTargetActor >= 0 &&
+		currentCameraTargetActor < (int)ListObjets.size() && loopSourcePosition(sx, sy, sz))
+	{
+		const tObject& p = ListObjets[currentCameraTargetActor];
+		const float dx = (p.roomX + p.stepX) - sx;
+		const float dz = (p.roomZ + p.stepZ) - sz;
+		const float d = sqrtf(dx * dx + dz * dz);
+		if (d > LOOP_NEAR)
+		{
+			const float t = (d - LOOP_NEAR) / (LOOP_FAR - LOOP_NEAR);
+			factor = t >= 1.0f ? LOOP_MIN : 1.0f - (1.0f - LOOP_MIN) * t;
+		}
+	}
+	osystem_setLoopingVolume(factor);
 }
 
 void playSoundLooping(int num)
@@ -257,6 +324,8 @@ void playSoundLooping(int num)
 	s_lastLoopingSample = num;
 	s_loopFloor = g_currentFloor;
 	s_loopRoom = currentRoom;
+	s_loopActor = currentProcessedActorIdx;
+	stopLoopingSoundsOnRoomChange();   // start at the positional volume, not at full volume
 }
 
 ////////////////////////

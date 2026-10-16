@@ -328,6 +328,9 @@ static void drawInterfaceAudioTab()
     ImGui::Spacing();
     ImGui::TextDisabled("Music");
     ImGui::Separator();
+    ImGui::Checkbox("Positional looping sounds", &g_remasterConfig.music.positionalLoops);
+    helpMarker("Looping sounds (the talisman chimes, ghosts) fade with your distance from their source. "
+               "Never louder than the original.");
     ImGui::Checkbox("External music", &g_remasterConfig.music.enableExternalMusic);
     ImGui::BeginDisabled(!g_remasterConfig.music.enableExternalMusic);
     ImGui::InputText("Music folder", g_remasterConfig.music.musicFolder, sizeof(g_remasterConfig.music.musicFolder));
