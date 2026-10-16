@@ -373,7 +373,9 @@ int InitSpecialObjet(int mode, int X, int Y, int Z, int stage, int room, int alp
         char* flowPtr;
         int j;
 
-        currentActorPtr->frame = HQ_Malloc(HQ_Memory, 184);
+        // 4 + 20 * 6 + 20 * 4 = 204 bytes are written below (was 184: a 20-byte heap overrun
+        // on every blood spray; Research/Crash_2026-10-16_createAITD1Mask.md)
+        currentActorPtr->frame = HQ_Malloc(HQ_Memory, 4 + 20 * (6 + 4));
 
         flowPtr = HQ_PtrMalloc(HQ_Memory, currentActorPtr->frame);
 
@@ -421,7 +423,7 @@ int InitSpecialObjet(int mode, int X, int Y, int Z, int stage, int room, int alp
     case 2: // bullet hole / impact
     {
         currentActorPtr->ANIM = mode;
-        currentActorPtr->frame = 0;
+        currentActorPtr->frame = -1;    // no particle data: DeleteObjet must not free HQ key 0
 
         // Small impact marker with short lifetime
         currentActorPtr->zv.ZVX1 = X - 5;
@@ -437,7 +439,7 @@ int InitSpecialObjet(int mode, int X, int Y, int Z, int stage, int room, int alp
     case 3: // muzzle flash
     {
         currentActorPtr->ANIM = mode;
-        currentActorPtr->frame = 0;
+        currentActorPtr->frame = -1;    // no particle data: DeleteObjet must not free HQ key 0
 
         // Brief flash at weapon emit point
         currentActorPtr->zv.ZVX1 = X - 8;
@@ -455,7 +457,8 @@ int InitSpecialObjet(int mode, int X, int Y, int Z, int stage, int room, int alp
         char* flowPtr;
         int j;
 
-        currentActorPtr->frame = HQ_Malloc(HQ_Memory, 244);
+        // 4 + 25 * 6 + 25 * 4 = 254 bytes are written below (was 244: 10-byte heap overrun)
+        currentActorPtr->frame = HQ_Malloc(HQ_Memory, 4 + 25 * (6 + 4));
 
         flowPtr = HQ_PtrMalloc(HQ_Memory, currentActorPtr->frame);
 

@@ -591,6 +591,15 @@ public:
         mei.ExceptionPointers = (PEXCEPTION_POINTERS)sh->exceptionPointers;
         mei.ClientPointers = TRUE;
         BOOL ok = MiniDumpWriteDump(proc, pid, file, StrictDumpType(), sh->exceptionPointers ? &mei : nullptr, nullptr, nullptr);
+        if (!ok)
+        {
+            // e.g. 0x8007012B (partial copy, 2026-10-16): retry without the private memory
+            SetFilePointer(file, 0, nullptr, FILE_BEGIN);
+            SetEndOfFile(file);
+            ok = MiniDumpWriteDump(proc, pid, file, static_cast<MINIDUMP_TYPE>(MiniDumpWithIndirectlyReferencedMemory |
+                MiniDumpScanMemory | MiniDumpWithThreadInfo | MiniDumpWithUnloadedModules | MiniDumpWithFullMemoryInfo |
+                MiniDumpWithDataSegs | MiniDumpWithHandleData), sh->exceptionPointers ? &mei : nullptr, nullptr, nullptr);
+        }
         sh->result = ok ? 0 : GetLastError();
         CloseHandle(file);
         SetEvent(done);
