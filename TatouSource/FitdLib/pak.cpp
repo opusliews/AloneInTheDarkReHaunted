@@ -159,7 +159,7 @@ static bool buildPakFilename(char* out, size_t outSize, const char* name)
 static void pakOpenDisk(FILE** fileHandle, const char* path, const char* name)
 {
     char pakName[512];
-    buildPakFilename(pakName, name);
+    buildPakFilename(pakName, sizeof(pakName), name);
     const unsigned char* data;
     size_t size;
     if (scenarioOverrideFile(pakName, &data, &size))
