@@ -663,8 +663,10 @@ int makeSaveFile(int entry)
                 if (ListObjets[i].ANIM == 4)
                 {
                     CVars[getCVarsIdx(FOG_FLAG)] = 0;
-                    HQ_Free_Malloc(HQ_Memory, ListObjets[i].frame);
                 }
+                // every effect with particle data owns an HQ_Memory block (modes 0, 1, 4;
+                // 2 and 3 have frame -1); freeing only smoke leaked the 10000-byte pool
+                HQ_Free_Malloc(HQ_Memory, ListObjets[i].frame);
             }
 		}
 	}
