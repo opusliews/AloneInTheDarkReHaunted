@@ -202,6 +202,16 @@ std::filesystem::path exeDirectory()
 std::mutex s_pathMutex;
 std::filesystem::path s_path;
 bool s_pathResolved = false;
+std::filesystem::path s_launchDir;      // working directory at startup (scenarioUseExeDirectory)
+
+// A command-line path, relative to the folder the program was started from.
+std::filesystem::path fromLaunchDir(const std::string& arg)
+{
+    std::filesystem::path p(arg);
+    if (p.is_relative() && !s_launchDir.empty())
+        p = s_launchDir / p;
+    return p;
+}
 
 std::filesystem::path scenarioPath()
 {
@@ -215,9 +225,9 @@ std::filesystem::path scenarioPath()
     {
         const std::string arg = __argv[i] ? __argv[i] : "";
         if (arg == "--scenario" && i + 1 < __argc)
-            path = __argv[++i];
+            path = fromLaunchDir(__argv[++i]);
         else if (arg.size() > 4 && _stricmp(arg.c_str() + arg.size() - 4, ".scn") == 0)
-            path = arg;
+            path = fromLaunchDir(arg);
     }
 #endif
     if (path.empty())
@@ -1043,6 +1053,20 @@ void writeCapture()
 } // namespace
 #endif
 
+void scenarioUseExeDirectory()
+{
+#ifdef AITD_SCENARIO_BUILD
+    std::error_code ec;
+    s_launchDir = std::filesystem::current_path(ec);
+    const std::filesystem::path exeDir = exeDirectory();
+    if (!exeDir.empty() && exeDir != s_launchDir)
+    {
+        std::filesystem::current_path(exeDir, ec);
+        std::printf("[SCENARIO] working directory set to the exe folder: %s\n", exeDir.string().c_str());
+    }
+#endif
+}
+
 int scenarioCommandLineCheck()
 {
 #if defined(AITD_SCENARIO_BUILD) && !defined(AITD_SCENARIO_CAPTURE_ONLY)
@@ -1060,7 +1084,7 @@ int scenarioCommandLineCheck()
     int failures = 0;
     for (int i = first; i < __argc; i++)
     {
-        const std::filesystem::path file(__argv[i]);
+        const std::filesystem::path file = fromLaunchDir(__argv[i]);
         std::string error, summary;
         if (loadScenarioFile(error, &file, &summary))
             std::printf("OK    %s  %s\n", file.filename().string().c_str(), summary.c_str());

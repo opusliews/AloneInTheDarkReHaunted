@@ -8,6 +8,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 #include "common.h"
+#include "scenarioTester.h"
 #include "memoryManager.h"
 #include "exceptionHandler.h"
 #include "consoleLog.h"
@@ -130,6 +131,8 @@ bool bFirst = true;
 
 int FitdInit(int argc, char* argv[])
 {
+    scenarioUseExeDirectory();   // TatouScenario / randomizer edition: config, HD and data beside the exe
+
 #ifdef WIN32
     //_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF | _CRTDBG_CHECK_ALWAYS_DF);
 

@@ -27,6 +27,14 @@ void scenarioMainLoopTick(bool gameplay);
 char* scenarioPatchLife(int lifeNum, char* lifeData);
 bool scenarioForcesBytecode(int lifeNum);
 
+// Called first thing at startup (FitdInit): remembers the launch folder, then makes the
+// exe's folder the working directory. ReHaunted finds its config, HD archives and data
+// relative to the working directory, and Explorer starts a program with the dropped
+// file's folder as the working directory when a .scn is dragged onto the exe (user report
+// 2026-10-16: vanilla graphics, default options). Relative command-line paths are resolved
+// against the launch folder.
+void scenarioUseExeDirectory();
+
 // Hotkeys (safe to call from the input handler).
 void scenarioRequestReapply(); // F10: reload the file, reset to a new game, apply
 void scenarioRequestCapture(); // F7: write the current state as a scenario file
