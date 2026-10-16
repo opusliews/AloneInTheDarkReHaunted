@@ -13,6 +13,7 @@
 #include "consoleLog.h"
 #include "embedded/embeddedData.h"
 #include "asyncLoader.h"
+#include "scenarioTester.h"
 
 #ifdef WIN32
 #include <direct.h>
@@ -77,6 +78,22 @@ static void buildPakFilename(char* out, const char* name)
     strcat_s(out, 512, ".PAK");
 }
 
+// Opens the disk copy of a PAK, unless a TatouScenario patch set replaces it
+// (the patch-set copy is then served through getEmbeddedFile()).
+static void pakOpenDisk(FILE** fileHandle, const char* path, const char* name)
+{
+    char pakName[512];
+    buildPakFilename(pakName, name);
+    const unsigned char* data;
+    size_t size;
+    if (scenarioOverrideFile(pakName, &data, &size))
+    {
+        *fileHandle = nullptr;
+        return;
+    }
+    fopen_s(fileHandle, path, "rb");
+}
+
 unsigned int PAK_getNumFiles(const char* name)
 {
     // Try disk file first
@@ -89,7 +106,7 @@ unsigned int PAK_getNumFiles(const char* name)
         strcat_s(bufferName, sizeof(bufferName), name);
         strcat_s(bufferName, sizeof(bufferName), ".PAK");
 
-        fopen_s(&fileHandle, bufferName,"rb");
+        pakOpenDisk(&fileHandle, bufferName, name);
 
         if (fileHandle)
         {
@@ -201,7 +218,7 @@ int getPakSize(const char* name, int index)
         strcat_s(bufferName, sizeof(bufferName), name);
         strcat_s(bufferName, sizeof(bufferName), ".PAK");
 
-        fopen_s(&fileHandle, bufferName,"rb");
+        pakOpenDisk(&fileHandle, bufferName, name);
 
         if(fileHandle)
         {
@@ -340,7 +357,7 @@ char* loadPak(const char* name, int index)
 		strcat_s(bufferName, sizeof(bufferName), name);
 		strcat_s(bufferName, sizeof(bufferName), ".PAK");
 
-		fopen_s(&fileHandle, bufferName,"rb");
+		pakOpenDisk(&fileHandle, bufferName, name);
 
 		if(fileHandle)
 		{

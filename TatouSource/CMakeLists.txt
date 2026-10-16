@@ -1,6 +1,17 @@
 cmake_minimum_required(VERSION 3.9)
 project(FITD)
 
+option(AITD_RANDOMIZER_EXPERIMENT
+    "Build the isolated AITD1 item-substitution experiment" OFF)
+option(AITD_FAKE_DOOR_EXPERIMENT
+    "Build TatouFake: makes the false double door OBJ 128/129 in room 3/0 openable" OFF)
+option(AITD_HD_INSPECTOR_BUILD
+    "Build the Object Inspector as TatouHD with an independent HD config" OFF)
+option(AITD_SCENARIO_BUILD
+    "Build TatouScenario: loads test scenario files (SCENARIO_TESTING.md)" OFF)
+option(AITD_RANDOMIZER_EDITION
+    "Build the randomizer's ReHaunted edition: no embedded game data (reads the player's own files)" OFF)
+
 set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DBX_CONFIG_DEBUG=0")
 #set( CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /DBX_CONFIG_DEBUG=1")
 

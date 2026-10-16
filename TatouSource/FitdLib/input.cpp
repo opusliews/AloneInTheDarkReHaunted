@@ -16,6 +16,8 @@
 #include "controlsMenu.h"
 #include "bgfxGlue.h"
 #include "debugger.h"
+#include "objectInspector.h"
+#include "scenarioTester.h"
 
 extern float nearVal;
 extern float farVal;
@@ -50,6 +52,53 @@ void resetWindowResizeFlag()
 
 void handleKeyDown(SDL_Event& event)
 {
+#ifndef AITD_RANDOMIZER_EDITION      // the release edition has no debug tools
+    // The description editor owns all keyboard input while open. Outside the
+    // editor this also handles the inspector's P/H/Y/O shortcuts.
+    if (objectInspectorHandleKeyDown(static_cast<int>(event.key.scancode), event.key.repeat))
+        return;
+
+    if (event.key.scancode == SDL_SCANCODE_F8 && !event.key.repeat)
+    {
+        objectInspectorToggle();
+        return;
+    }
+
+    if (event.key.scancode == SDL_SCANCODE_F9 && !event.key.repeat)
+    {
+        objectInspectorToggleGodMode();
+        return;
+    }
+#endif
+
+#ifdef AITD_SCENARIO_BUILD
+    if (event.key.scancode == SDL_SCANCODE_F7 && !event.key.repeat)
+    {
+        scenarioRequestCapture();
+        return;
+    }
+#endif
+#if defined(AITD_SCENARIO_BUILD) && !defined(AITD_SCENARIO_CAPTURE_ONLY)
+    if (event.key.scancode == SDL_SCANCODE_F10 && !event.key.repeat)
+    {
+        scenarioRequestReapply();
+        return;
+    }
+
+
+    if (event.key.scancode == SDL_SCANCODE_F5 && !event.key.repeat)
+    {
+        scenarioToggleInfiniteAmmo();
+        return;
+    }
+
+    if (event.key.scancode == SDL_SCANCODE_F6)
+    {
+        scenarioRequestNudge((event.key.mod & SDL_KMOD_SHIFT) ? -1 : 1);
+        return;
+    }
+#endif
+
     switch (event.key.key)
     {
 #ifdef FITD_DEBUGGER
@@ -92,7 +141,14 @@ void readKeyboard(void)
         case SDL_EVENT_QUIT:
             cleanupAndExit();
             break;
+#if defined(AITD_SCENARIO_BUILD) && !defined(AITD_SCENARIO_CAPTURE_ONLY)
+        case SDL_EVENT_DROP_FILE:
+            scenarioDropFile(event.drop.data);
+            break;
+#endif
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            if (objectInspectorHandleMouseButton(event.button.button, event.button.x, event.button.y))
+                break;
             // Double-click toggles fullscreen
             if (event.button.clicks == 2 && event.button.button == SDL_BUTTON_LEFT)
             {
@@ -113,6 +169,20 @@ void readKeyboard(void)
 
     }
 
+    // SDL 3 requires StartTextInput/StopTextInput on the main thread. ImGui is
+    // rendered on ReHaunted's game thread, so the inspector publishes the
+    // desired state and this SDL event thread performs the transition.
+    static bool inspectorTextInputActive = false;
+    const bool wantsInspectorTextInput = objectInspectorWantsTextInput();
+    if (gWindowBGFX && wantsInspectorTextInput != inspectorTextInputActive)
+    {
+        if (wantsInspectorTextInput)
+            SDL_StartTextInput(gWindowBGFX);
+        else
+            SDL_StopTextInput(gWindowBGFX);
+        inspectorTextInputActive = wantsInspectorTextInput;
+    }
+
 #ifdef FITD_DEBUGGER
     debuggerVar_fastForward = false;
 #endif
@@ -120,12 +190,24 @@ void readKeyboard(void)
     // Update controller state
     updateController();
 
+    // Text entered in the annotation editor must not become movement/action
+    // input through the engine's held-key polling below.
+    if (objectInspectorBlocksGameplayInput())
+        return;
+
     keyboard = SDL_GetKeyboardState(&size);
 
     for (j = 0; j < size; j++)
     {
         if (keyboard[j])
         {
+            // Inspector shortcuts are edge-triggered above. Do not also feed a
+            // held P/H/Y/O into debugger or configurable gameplay bindings.
+            if (objectInspectorIsEnabled() &&
+                (j == SDL_SCANCODE_P || j == SDL_SCANCODE_H ||
+                 j == SDL_SCANCODE_Y || j == SDL_SCANCODE_O))
+                continue;
+
             switch (j)
             {
                 /*        case SDLK_z:

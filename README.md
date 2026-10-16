@@ -14,6 +14,9 @@ OS supported with binaries - Windows (64bit) Linux (64bit) macOS 11.3 (64bit)
 AITD-R (also known as *Alone In The Dark Re-Haunted*) lets you play the original *Alone in the Dark* games on modern hardware. It is a from-scratch C++ reimplementation of the Infogrames engine, built with modern rendering (bgfx), audio (SoLoud), and input (SDL3) backends. The project is released under the **GNU General Public License v2**.
 
 > **You must own the original game data** — purchase *Alone in the Dark* on [Steam](https://store.steampowered.com/app/548090/Alone_in_the_Dark_1/) or [GOG](https://www.gog.com/en/game/alone_in_the_dark_the_trilogy_123). The game data files are **not** included.
+>
+> This is a Free, Non-profit passion project but takes us a lot of coffee to get it done! Donate to us at https://buymeacoffee.com/jakeysbakery
+> PayPal- jake@spacefarergames.com
 
 ---
 
@@ -93,6 +96,14 @@ For full multi-platform build instructions see **[BUILDING.md](BUILDING.md)**.
 ## How to Play
 
 Note: For Jack in The Dark, download the seperate JackInTheDark release from the Releases. Keep both AITD1 and Jack in the Dark seperate to avoid conflicts. By default, it will install automatically when Steamless = false in the remaster cfg.
+
+### Object Inspector Mode
+
+The research build includes an **F8** gameplay overlay that displays the current
+floor and room, labels visible persistent 3D objects, and outlines type-9 search
+and scenario zones. **F9** toggles AITD1 God Mode for damage-free debugging. See
+[OBJECT_INSPECTOR.md](OBJECT_INSPECTOR.md) for usage, label meanings, coverage,
+build information, and known limitations.
 
 ### Starting a New Game
 
@@ -214,7 +225,9 @@ All remaster features are configurable through `aitd_remaster.cfg` — see [`fit
 ---
 
 ## Configuration
+<img width="1069" height="762" alt="image" src="https://github.com/user-attachments/assets/10519c13-ce2e-4c75-84a2-ea852cc4cff2" />
 
+Since 2.4 update, Re-Haunted now has a built in Options Dialog which can now be triggered with HOME/F1 and on startup.
 Copy `fitd_remaster.cfg.example` to `aitd_remaster.cfg` alongside the game data and edit to taste. Key sections:
 
 | Section | Key Settings |

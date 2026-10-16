@@ -16,6 +16,7 @@
 #include "startupMenu.h"
 #include "asyncLoader.h"
 #include "menuMouse.h"
+#include "scenarioTester.h"
 
 // DEMO mapping
 /*
@@ -704,8 +705,10 @@ void startAITD1()
                 }
 
 #if !TARGET_OS_IOS
-                // Start intro sequence with cinematc letterbox (handled by InitView)
-                startGame(7, 1, 0);
+                // Start intro sequence with cinematc letterbox (handled by InitView).
+                // TatouScenario skips it when a scenario file is armed.
+                if (!scenarioArmNewGame())
+                    startGame(7, 1, 0);
 #endif
 
                 // here, original would quit if protection flag was false

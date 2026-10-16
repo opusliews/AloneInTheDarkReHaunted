@@ -11,6 +11,7 @@
 #include "consoleLog.h"
 #include "fontTTF.h"
 #include "input.h"
+#include "pickupPromptGuard.h"
 #include <SDL.h>
 #include <math.h>
 
@@ -749,13 +750,8 @@ void FoundObjet(int objIdx, int param)
         return;
     }
 
-    if (objPtr->trackNumber)
-    {
-        if (timer - objPtr->trackNumber < 300) // prevent from reopening the window every frame
-            return;
-    }
-
-    objPtr->trackNumber = 0;
+    if (pickupPromptGuardIsCoolingDown(objIdx))
+        return;
 
     // When HD backgrounds are active, use HD inventory background overlay
     // Otherwise fall back to standard rendering
@@ -927,7 +923,7 @@ void FoundObjet(int objIdx, int param)
     }
     else
     {
-        objPtr->trackNumber = timer;
+        pickupPromptGuardOnPromptDeclined(objIdx, param == 0);
     }
 
     while (key && Click)

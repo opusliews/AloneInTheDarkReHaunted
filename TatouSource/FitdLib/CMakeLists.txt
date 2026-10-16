@@ -50,6 +50,17 @@ file(GLOB_RECURSE SRC_ROOT
 
 
 
+# Randomizer edition: leave out every embedded original game file (AITD1 and
+# Jack in the Dark PAK/ITD data, and their lookup tables). The game then reads
+# the player's own data files; embedded/noGameData.cpp serves the remaining
+# non-game assets (ControllerHint.png). Not legal advice: see
+# Research/ReHauntedDataHandling.md and RandomizerPlan.md "Releases".
+if(AITD_RANDOMIZER_EDITION)
+    list(FILTER SRC_ROOT EXCLUDE REGEX "embedded/embedded_.*_(PAK|ITD)[.]cpp$")
+    list(FILTER SRC_ROOT EXCLUDE REGEX "embedded/embedded_jack_.*[.]cpp$")
+    list(FILTER SRC_ROOT EXCLUDE REGEX "embedded/embedded(Jack)?Data[.]cpp$")
+endif()
+
 # Base source files
 set(SOURCES
  ${SOURCES}
@@ -145,6 +156,28 @@ if(MSVC)
 endif()
 
 add_library (FitdLib ${SOURCES})
+
+if(AITD_RANDOMIZER_EXPERIMENT)
+    target_compile_definitions(FitdLib PRIVATE AITD_RANDOMIZER_EXPERIMENT=1)
+endif()
+
+if(AITD_FAKE_DOOR_EXPERIMENT)
+    target_compile_definitions(FitdLib PRIVATE AITD_FAKE_DOOR_EXPERIMENT=1)
+endif()
+
+if(AITD_HD_INSPECTOR_BUILD)
+    target_compile_definitions(FitdLib PRIVATE AITD_HD_INSPECTOR_BUILD=1)
+endif()
+
+if(AITD_SCENARIO_BUILD)
+    target_compile_definitions(FitdLib PRIVATE AITD_SCENARIO_BUILD=1)
+endif()
+
+if(AITD_RANDOMIZER_EDITION)
+    # Release edition: only the F7 state capture of the scenario tester, for bug reports.
+    target_compile_definitions(FitdLib PRIVATE AITD_RANDOMIZER_EDITION=1
+                               AITD_SCENARIO_BUILD=1 AITD_SCENARIO_CAPTURE_ONLY=1)
+endif()
 
 
 

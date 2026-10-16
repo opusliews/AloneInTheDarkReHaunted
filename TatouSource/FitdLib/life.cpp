@@ -18,6 +18,12 @@
 #include "nativeLife.h"
 #include "bytecodePatches.h"
 #include "lanternLighting.h"
+#include "objectInspector.h"
+#include "randomizerExperiment.h"
+#include "lifeBugfixes.h"
+#include "fakeDoorExperiment.h"
+#include "scenarioTester.h"
+#include "pickupPromptGuard.h"
 
 // HD background state (from hdBackgroundRenderer)
 extern bool g_currentBackgroundIsHD;
@@ -213,6 +219,7 @@ void put(int x, int y, int z, int room, int stage, int alpha, int beta, int gamm
 void drop(int worldIdx, int worldSource)
 {
     PutAtObjet(worldIdx, worldSource);
+    pickupPromptGuardOnDrop(worldIdx);
 }
 
 void fire(int fireAnim, int X, int Y, int Z, int hitForce, int nextAnim)
@@ -770,19 +777,32 @@ void processLife(int lifeNum, bool callFoundLife)
     currentLifeActorPtr = currentProcessedActorPtr;
     currentLifeNum = lifeNum;
 
+    // F9 god mode restores AITD1 player health and clears incoming hit force
+    // before the player's damage LIFE can inspect it.
+    objectInspectorProtectPlayer();
+
     currentLifePtr = HQR_Get(listLife, lifeNum);
     assert(currentLifePtr);
+    currentLifePtr = randomizerExperimentPatchLife(lifeNum, currentLifePtr);
+    currentLifePtr = lifeBugfixPatchLife(lifeNum, currentLifePtr);
+    currentLifePtr = scenarioPatchLife(lifeNum, currentLifePtr);
+    if (fakeDoorExperimentHandleLife(lifeNum))
+        return;
 
     // Run native C replacement if one is registered (safe-filter mode).
     // Scripts not registered fall through to the bytecode interpreter + patch system.
     if (g_remasterConfig.debug.enableNativeLifeScripts)
     {
         NativeLifeFunc nativeFunc = getNativeLifeScript(lifeNum);
-        if (nativeFunc)
+        if (nativeFunc && !randomizerExperimentUsesPatchedLife(lifeNum) && !lifeBugfixForcesBytecode(lifeNum) &&
+            !scenarioForcesBytecode(lifeNum))
         {
+            const int healthBefore = vars[21];
             if (g_remasterConfig.debug.logLifeScripts)
                 printf(LIFE_TAG "[NATIVE] Actor %d | Life %d" CON_RESET "\n", currentProcessedActorIdx, lifeNum);
             nativeFunc(lifeNum, callFoundLife);
+            vars[21] = objectInspectorFilterVarWrite(21, healthBefore, vars[21]);
+            objectInspectorProtectPlayer();
             return;
         }
     }
@@ -1545,7 +1565,7 @@ void processLife(int lifeNum, bool callFoundLife)
                     break;
                 }
 
-                ptr = HQR_Get(listTrack, currentProcessedActorPtr->trackNumber);
+                ptr = trackBugfixPatchTrack(currentProcessedActorPtr->trackNumber, HQR_Get(listTrack, currentProcessedActorPtr->trackNumber));
 
                 // Safety check: ensure track data exists
                 if (!ptr)
@@ -2639,8 +2659,9 @@ void processLife(int lifeNum, bool callFoundLife)
             {
                 appendFormated("LM_VAR ");
                 lifeTempVar1 = readNextArgument("Index");
-
-                vars[lifeTempVar1] = evalVar("value");
+                lifeTempVar2 = evalVar("value");
+                vars[lifeTempVar1] = objectInspectorFilterVarWrite(
+                    lifeTempVar1, vars[lifeTempVar1], lifeTempVar2);
                 break;
             }
             case LM_INC: // INC_VAR
@@ -2649,7 +2670,8 @@ void processLife(int lifeNum, bool callFoundLife)
                 lifeTempVar1 = *(s16*)(currentLifePtr);
                 currentLifePtr += 2;
 
-                vars[lifeTempVar1]++;
+                vars[lifeTempVar1] = objectInspectorFilterVarWrite(
+                    lifeTempVar1, vars[lifeTempVar1], vars[lifeTempVar1] + 1);
                 break;
             }
             case LM_DEC: // DEC_VAR
@@ -2658,7 +2680,8 @@ void processLife(int lifeNum, bool callFoundLife)
                 lifeTempVar1 = *(s16*)(currentLifePtr);
                 currentLifePtr += 2;
 
-                vars[lifeTempVar1]--;
+                vars[lifeTempVar1] = objectInspectorFilterVarWrite(
+                    lifeTempVar1, vars[lifeTempVar1], vars[lifeTempVar1] - 1);
                 break;
             }
             case LM_ADD: // ADD_VAR
@@ -2667,7 +2690,9 @@ void processLife(int lifeNum, bool callFoundLife)
                 lifeTempVar1 = *(s16*)(currentLifePtr);
                 currentLifePtr += 2;
 
-                vars[lifeTempVar1] += evalVar();
+                lifeTempVar2 = evalVar();
+                vars[lifeTempVar1] = objectInspectorFilterVarWrite(
+                    lifeTempVar1, vars[lifeTempVar1], vars[lifeTempVar1] + lifeTempVar2);
                 break;
             }
             case LM_SUB: // SUB_VAR
@@ -2676,7 +2701,9 @@ void processLife(int lifeNum, bool callFoundLife)
                 lifeTempVar1 = *(s16*)(currentLifePtr);
                 currentLifePtr += 2;
 
-                vars[lifeTempVar1] -= evalVar();
+                lifeTempVar2 = evalVar();
+                vars[lifeTempVar1] = objectInspectorFilterVarWrite(
+                    lifeTempVar1, vars[lifeTempVar1], vars[lifeTempVar1] - lifeTempVar2);
                 break;
             }
             case LM_MODIF_C_VAR:

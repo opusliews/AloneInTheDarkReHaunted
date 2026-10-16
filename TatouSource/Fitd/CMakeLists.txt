@@ -43,8 +43,18 @@ endif()
 
 add_executable (Fitd ${SOURCES})
 
-# Output executable as Tatou / Tatou.app on macOS
-set_target_properties(Fitd PROPERTIES OUTPUT_NAME "Tatou")
+# Keep the experiment binary separate from the normal executable.
+if(AITD_RANDOMIZER_EXPERIMENT)
+    set_target_properties(Fitd PROPERTIES OUTPUT_NAME "TatouTest")
+elseif(AITD_FAKE_DOOR_EXPERIMENT)
+    set_target_properties(Fitd PROPERTIES OUTPUT_NAME "TatouFake")
+elseif(AITD_HD_INSPECTOR_BUILD)
+    set_target_properties(Fitd PROPERTIES OUTPUT_NAME "TatouHD")
+elseif(AITD_SCENARIO_BUILD)
+    set_target_properties(Fitd PROPERTIES OUTPUT_NAME "TatouScenario")
+else()
+    set_target_properties(Fitd PROPERTIES OUTPUT_NAME "Tatou")
+endif()
 
 IF(${CMAKE_SYSTEM_NAME} MATCHES Darwin)
     # Build as a proper .app bundle

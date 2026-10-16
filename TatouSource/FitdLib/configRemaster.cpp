@@ -16,6 +16,17 @@
 
 RemasterConfig g_remasterConfig;
 
+static const char* getRemasterConfigFilename()
+{
+#ifdef AITD_HD_INSPECTOR_BUILD
+    // Keep the HD inspector's settings independent from the normal Tatou
+    // executable so both builds can coexist in one game directory.
+    return "aitd_remaster_hd.cfg";
+#else
+    return "aitd_remaster.cfg";
+#endif
+}
+
 void initDefaultRemasterConfig()
 {
     // Controller defaults
@@ -116,7 +127,7 @@ void initDefaultRemasterConfig()
 
 void loadRemasterConfig()
 {
-    FILE* file = fopen("aitd_remaster.cfg", "r");
+    FILE* file = fopen(getRemasterConfigFilename(), "r");
     
     // Initialize defaults first
     initDefaultRemasterConfig();
@@ -371,7 +382,7 @@ void loadRemasterConfig()
 
 void saveRemasterConfig()
 {
-    FILE* file = fopen("aitd_remaster.cfg", "w");
+    FILE* file = fopen(getRemasterConfigFilename(), "w");
     
     if (!file)
     {

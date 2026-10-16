@@ -26,6 +26,11 @@ extern void playMenuSound(const char* soundName);
 #include "resourceGC.h"
 #include "track.h"
 #include "lanternLighting.h"
+#include "objectInspector.h"
+#include "randomizerExperiment.h"
+#include "lifeBugfixes.h"
+#include "pickupPromptGuard.h"
+#include "scenarioTester.h"
 #include "menuMouse.h"
 #include <math.h>
 #include <SDL.h>
@@ -39,6 +44,7 @@ extern void playMenuSound(const char* soundName);
 #include "jobSystemInit.h"
 
 #include <array>
+#include <algorithm>
 #include <filesystem>
 #include <string>
 #include <fstream>
@@ -295,7 +301,7 @@ void executeFoundLife(int objIdx)
 
     if (currentLifeNum != -1 && currentLifePtr != nullptr)
     {
-        lifeOffset = (int)((currentLifePtr - HQR_Get(listLife, currentActorLifeNum)) / 2);
+        lifeOffset = (int)((currentLifePtr - lifeBugfixPatchLife(currentActorLifeNum, HQR_Get(listLife, currentActorLifeNum))) / 2);
     }
     else
     {
@@ -359,7 +365,7 @@ void executeFoundLife(int objIdx)
     if (currentActorLifeNum != -1 && currentLifePtr != nullptr)
     {
         currentLifeNum = currentActorLifeNum;
-        currentLifePtr = HQR_Get(listLife, currentLifeNum) + lifeOffset * 2;
+        currentLifePtr = lifeBugfixPatchLife(currentLifeNum, HQR_Get(listLife, currentLifeNum)) + lifeOffset * 2;
     }
 }
 
@@ -1315,6 +1321,8 @@ void LoadWorld(void)
     int i;
     int choosePersoBackup;
 
+    pickupPromptGuardReset();
+
     {
         const unsigned char* embData = nullptr;
         size_t embSize = 0;
@@ -1442,6 +1450,10 @@ void LoadWorld(void)
 
     free(pObjectDataBackup);
 
+    // The experiment build mutates only the decoded in-memory world table.
+    // The embedded/external OBJETS.ITD bytes are never written.
+    randomizerExperimentApplyWorldSwaps();
+
     vars = (s16*)loadFromItd("VARS.ITD");
 
     varSize = fileSize;
@@ -1523,6 +1535,9 @@ void LoadWorld(void)
     {
         currentWorldTarget = CVars[getCVarsIdx(WORLD_NUM_PERSO)];
     }
+
+    // TatouScenario keeps the pristine tables as the F7 capture baseline.
+    scenarioOnWorldLoaded();
 }
 
 void initVarsSub1(void)
@@ -2909,6 +2924,74 @@ void drawProjectedLine(s32 x1s, s32 y1s, s32 z1s, s32 x2s, s32 y2s, s32 z2s, int
 #endif
 }
 
+static bool projectInspectorPoint(int sourceX, int sourceY, int sourceZ, int& screenX, int& screenY)
+{
+    float x = static_cast<float>(sourceX - translateX);
+    float y = static_cast<float>(sourceY - translateY);
+    float z = static_cast<float>(sourceZ - translateZ);
+    transformPoint(&x, &y, &z);
+    z += static_cast<float>(cameraPerspective);
+    if (z <= 1.0f)
+        return false;
+    screenX = static_cast<int>((x * cameraFovX) / z + cameraCenterX);
+    screenY = static_cast<int>((y * cameraFovY) / z + cameraCenterY);
+    return true;
+}
+
+static void captureInspectorZoneLabel(bool hardCollision, int zoneIndex, int type, int parameter, const ZVStruct& zone)
+{
+    const int xs[2] = { zone.ZVX1, zone.ZVX2 };
+    const int ys[2] = { zone.ZVY1, zone.ZVY2 };
+    const int zs[2] = { zone.ZVZ1, zone.ZVZ2 };
+    int projectedX[8] = {};
+    int projectedY[8] = {};
+    bool projectedValid[8] = {};
+    int minX = 32767, minY = 32767, maxX = -32768, maxY = -32768;
+    bool projected = false;
+    for (int xi = 0; xi < 2; ++xi)
+        for (int yi = 0; yi < 2; ++yi)
+            for (int zi = 0; zi < 2; ++zi)
+            {
+                const int corner = xi * 4 + yi * 2 + zi;
+                int screenX, screenY;
+                if (!projectInspectorPoint(xs[xi], ys[yi], zs[zi], screenX, screenY))
+                    continue;
+                projectedX[corner] = screenX;
+                projectedY[corner] = screenY;
+                projectedValid[corner] = true;
+                projected = true;
+                minX = (std::min)(minX, screenX);
+                minY = (std::min)(minY, screenY);
+                maxX = (std::max)(maxX, screenX);
+                maxY = (std::max)(maxY, screenY);
+            }
+    if (projected)
+        objectInspectorCaptureZone(hardCollision, zoneIndex, type, parameter,
+            zone.ZVX1, zone.ZVX2, zone.ZVY1, zone.ZVY2, zone.ZVZ1, zone.ZVZ2,
+            minX, minY, maxX, maxY, projectedX, projectedY, projectedValid);
+}
+
+static void drawObjectInspectorZones()
+{
+    if (!objectInspectorIsEnabled() || currentRoom < 0 || currentRoom >= static_cast<int>(roomDataTable.size()))
+        return;
+    roomDataStruct& room = roomDataTable[currentRoom];
+    for (int i = 0; i < static_cast<int>(room.hardColTable.size()); ++i)
+    {
+        hardColStruct& zone = room.hardColTable[i];
+        if (zone.type != 9)
+            continue;
+        captureInspectorZoneLabel(true, i, static_cast<int>(zone.type), static_cast<int>(zone.parameter), zone.zv);
+    }
+    for (int i = 0; i < static_cast<int>(room.sceZoneTable.size()); ++i)
+    {
+        sceZoneStruct& zone = room.sceZoneTable[i];
+        if (zone.type != 9)
+            continue;
+        captureInspectorZoneLabel(false, i, static_cast<int>(zone.type), static_cast<int>(zone.parameter), zone.zv);
+    }
+}
+
 // Draw a red laser sight beam for actors in the WAIT_TIR_ANIM (gun-aiming) state.
 // Controlled by the Hints toggle in the system menu.
 // Uses the same aim angle (beta - 0x100) and range (animActionParam) as DO_TIR.
@@ -3773,7 +3856,14 @@ void drawSceneObjects()
         }
 
         setCurrentBodyNum(actorPtr->bodyNum, bodyPtr, HQ_Bodys->string);
-        AffObjet(actorPtr->worldX + actorPtr->stepX, actorPtr->worldY + actorPtr->stepY, actorPtr->worldZ + actorPtr->stepZ, actorPtr->alpha, actorPtr->beta, actorPtr->gamma, bodyPtr);
+        const int renderResult = AffObjet(actorPtr->worldX + actorPtr->stepX, actorPtr->worldY + actorPtr->stepY, actorPtr->worldZ + actorPtr->stepZ, actorPtr->alpha, actorPtr->beta, actorPtr->gamma, bodyPtr);
+
+        if (renderResult == 0 && actorPtr->indexInWorld >= 0 &&
+            actorPtr->indexInWorld < static_cast<int>(ListWorldObjets.size()))
+        {
+            objectInspectorCaptureActor(currentDrawActor, actorPtr->indexInWorld,
+                actorPtr->bodyNum, BBox3D1, BBox3D2, BBox3D3, BBox3D4);
+        }
 
         if (shouldDrawShadows && !actorPtr->hidePlanarShadow)
         {
@@ -3917,7 +4007,14 @@ void AllRedraw(int flagFlip)
                         }
 
                         setCurrentBodyNum(actorPtr->bodyNum, bodyPtr, HQ_Bodys->string);
-                        AffObjet(actorPtr->worldX + actorPtr->stepX, actorPtr->worldY + actorPtr->stepY, actorPtr->worldZ + actorPtr->stepZ, actorPtr->alpha, actorPtr->beta, actorPtr->gamma, bodyPtr);
+                        const int renderResult = AffObjet(actorPtr->worldX + actorPtr->stepX, actorPtr->worldY + actorPtr->stepY, actorPtr->worldZ + actorPtr->stepZ, actorPtr->alpha, actorPtr->beta, actorPtr->gamma, bodyPtr);
+
+                        if (renderResult == 0 && actorPtr->indexInWorld >= 0 &&
+                            actorPtr->indexInWorld < static_cast<int>(ListWorldObjets.size()))
+                        {
+                            objectInspectorCaptureActor(currentDrawActor, actorPtr->indexInWorld,
+                                actorPtr->bodyNum, BBox3D1, BBox3D2, BBox3D3, BBox3D4);
+                        }
 
                         // CRITICAL: Populate lamp primitive cache immediately after body 11 is rendered
                         // This must happen BEFORE any subsequent AffObjet() call overwrites primTable[]
@@ -3984,6 +4081,10 @@ void AllRedraw(int flagFlip)
             }
         }
     }
+
+    // Draw current-room search/scenario volumes after ordinary objects so the
+    // wire boxes remain readable without changing normal F8-off frames.
+    drawObjectInspectorZones();
 
 #ifdef FITD_DEBUGGER
     {
@@ -4135,8 +4236,14 @@ int CheckObjectCol(int actorIdx, ZVStruct* zvPtr)
             continue;
         if (i == actorIdx)
             continue;
+        // TatouTest can decouple a replacement model from the original
+        // pickup slot volume. Exclude that visual actor before it consumes
+        // one of the engine's three collision-result slots.
+        if (randomizerExperimentIsNonBlockingPickupActor(currentActor))
+            continue;
 
         ZVStruct* currentActorZv = &currentActor->zv;
+        bool intersects = false;
 
         if (currentActor->room != actorRoom)
         {
@@ -4146,23 +4253,29 @@ int CheckObjectCol(int actorIdx, ZVStruct* zvPtr)
 
             AdjustZV(&localZv, actorRoom, currentActor->room);
 
-            if (CubeIntersect(&localZv, currentActorZv))
-            {
-                currentProcessedActorPtr->COL[currentCollisionSlot++] = i;
-
-                if (currentCollisionSlot == 3)
-                    return(3);
-            }
+            intersects = CubeIntersect(&localZv, currentActorZv) != 0;
         }
         else
         {
-            if (CubeIntersect(zvPtr, currentActorZv))
-            {
-                currentProcessedActorPtr->COL[currentCollisionSlot++] = i;
+            intersects = CubeIntersect(zvPtr, currentActorZv) != 0;
+        }
 
-                if (currentCollisionSlot == 3)
-                    return(3);
-            }
+        // Foundable actors do not physically block the player. Keep freshly
+        // dropped or recently declined items out of the three collision slots
+        // until their prompt guard permits another interaction.
+        if (ListObjets[actorIdx].trackMode == 1 &&
+            (currentActor->objectType & AF_FOUNDABLE) &&
+            pickupPromptGuardShouldSuppressCollision(currentActor->indexInWorld, intersects))
+        {
+            continue;
+        }
+
+        if (intersects)
+        {
+            currentProcessedActorPtr->COL[currentCollisionSlot++] = i;
+
+            if (currentCollisionSlot == 3)
+                return(3);
         }
     }
 
@@ -4214,6 +4327,8 @@ void take(int objIdx)
 
     objPtr->room = -1;
     objPtr->stage = -1;
+
+    pickupPromptGuardOnObjectTaken(objIdx);
 }
 
 void Glisser(int flag)
@@ -5512,6 +5627,9 @@ extern "C" {
 
 int FitdMain(int argc, char* argv[])
 {
+    // TatouScenario --check-scenario: validate scenario files and exit.
+    scenarioCommandLineCheck();
+
     // Load remaster configuration early, before any systems that depend on it
     loadRemasterConfig();
 

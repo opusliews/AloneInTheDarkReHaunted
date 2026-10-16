@@ -8,7 +8,9 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 #include "common.h"
+#include "pickupPromptGuard.h"
 #include "zlib.h"
+#include <algorithm>
 #include <filesystem>
 
 extern "C" {
@@ -187,8 +189,12 @@ int loadSave(int saveNumber)
     if(g_gameId == AITD1)
     {
         oldNumMaxObj = maxObjects;
-        maxObjects = 300; // fix for save engine..
-        ListWorldObjets.resize(maxObjects);
+        // The vanilla save format holds 300 records ("fix for save engine").
+        // A table raised past 300 (randomizer object-limit patch) keeps every
+        // record; the header holds the real count. Never shrink the table.
+        maxObjects = (std::max)(oldNumMaxObj, 300);
+        if ((int)ListWorldObjets.size() < maxObjects)
+            ListWorldObjets.resize(maxObjects);
     }
 
     for(i=0;i<maxObjects;i++)
@@ -604,6 +610,8 @@ int loadSave(int saveNumber)
         }
     }
 
+    pickupPromptGuardOnSaveLoaded(currentCameraTargetActor);
+
     NewNumCamera = var_E;
 
     return(1);
@@ -714,8 +722,12 @@ int makeSaveFile(int entry)
     if(g_gameId == AITD1)
     {
         oldNumMaxObj = maxObjects;
-        maxObjects = 300; // fix for save engine..
-        ListWorldObjets.resize(maxObjects);
+        // The vanilla save format holds 300 records ("fix for save engine").
+        // A table raised past 300 (randomizer object-limit patch) keeps every
+        // record; the header holds the real count. Never shrink the table.
+        maxObjects = (std::max)(oldNumMaxObj, 300);
+        if ((int)ListWorldObjets.size() < maxObjects)
+            ListWorldObjets.resize(maxObjects);
     }
 
     for(i=0;i<maxObjects;i++)

@@ -15,6 +15,7 @@
 #include "jobSystem.h"
 #include "lanternLighting.h"
 #include "menuMouse.h"
+#include "scenarioTester.h"
 
 #ifndef WIN32
 #include <sys/time.h>
@@ -491,6 +492,9 @@ void PlayWorld(int allowSystemMenu, int deltaTime)
         {
             action = 0;
         }
+
+        // TatouScenario: F7/F10 requests and applying a pending scenario.
+        scenarioMainLoopTick(allowSystemMenu != 0);
 
         executeFoundLife(inHandTable[currentInventory]);
 

@@ -17,7 +17,9 @@
 #include <stdio.h>
 #include <time.h>
 #include <DbgHelp.h>
+#include <TlHelp32.h>
 #include <crtdbg.h>
+#include <string.h>
 
 #pragma comment(lib, "Dbghelp.lib")
 
@@ -30,6 +32,136 @@ private:
     static inline PVOID vehHandle = nullptr;
     static inline volatile long heapWarningCount = 0;
     static inline volatile long breakpointSkipCount = 0;
+
+    static bool BuildDiagnosticPath(char* output, size_t outputSize, const char* fileName)
+    {
+        if (!output || outputSize == 0 || !fileName) return false;
+
+        DWORD length = GetModuleFileNameA(nullptr, output, static_cast<DWORD>(outputSize));
+        if (length == 0 || length >= outputSize) return false;
+
+        char* slash = strrchr(output, '\\');
+        if (!slash) slash = strrchr(output, '/');
+        if (!slash) return strcpy_s(output, outputSize, fileName) == 0;
+
+        *(slash + 1) = '\0';
+        return strcat_s(output, outputSize, fileName) == 0;
+    }
+
+    static void OpenCrashLog(const char* mode)
+    {
+        if (crashLogFile) return;
+
+        char path[32768];
+        if (BuildDiagnosticPath(path, sizeof(path), "crash_log.txt"))
+            fopen_s(&crashLogFile, path, mode);
+
+        // Retain a working-directory fallback for unusual launch environments.
+        if (!crashLogFile)
+            fopen_s(&crashLogFile, "crash_log.txt", mode);
+    }
+
+    static void LogAddressModule(FILE* file, const char* label, DWORD64 address)
+    {
+        HMODULE module = nullptr;
+        char modulePath[32768] = {};
+
+        if (GetModuleHandleExA(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCSTR>(static_cast<ULONG_PTR>(address)), &module))
+        {
+            GetModuleFileNameA(module, modulePath, static_cast<DWORD>(sizeof(modulePath)));
+            fprintf(file, "%s: %s\n", label, modulePath[0] ? modulePath : "(path unavailable)");
+            fprintf(file, "%s Base: 0x%p\n", label, module);
+            fprintf(file, "%s Offset: 0x%llX\n", label,
+                address - reinterpret_cast<DWORD64>(module));
+        }
+        else
+        {
+            fprintf(file, "%s: (no loaded module owns 0x%016llX)\n", label, address);
+        }
+    }
+
+    static void LogLoadedModules(FILE* file)
+    {
+        fprintf(file, "\nLoaded Modules:\n");
+        HANDLE snapshot = CreateToolhelp32Snapshot(
+            TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, GetCurrentProcessId());
+        if (snapshot == INVALID_HANDLE_VALUE)
+        {
+            fprintf(file, "  (module snapshot failed: Win32 error %lu)\n", GetLastError());
+            return;
+        }
+
+        MODULEENTRY32 module = {};
+        module.dwSize = sizeof(module);
+        if (Module32First(snapshot, &module))
+        {
+            do
+            {
+                fprintf(file, "  0x%p size=0x%08lX %s\n",
+                    module.modBaseAddr, module.modBaseSize, module.szExePath);
+            } while (Module32Next(snapshot, &module));
+        }
+        else
+        {
+            fprintf(file, "  (module enumeration failed: Win32 error %lu)\n", GetLastError());
+        }
+        CloseHandle(snapshot);
+    }
+
+    static bool WriteMiniDump(EXCEPTION_POINTERS* exceptionInfo, char* dumpPath, size_t dumpPathSize,
+        DWORD* errorCode)
+    {
+        if (errorCode) *errorCode = ERROR_SUCCESS;
+
+        SYSTEMTIME now;
+        GetLocalTime(&now);
+        char dumpName[128];
+        sprintf_s(dumpName, sizeof(dumpName),
+            "crash_dump_%04u%02u%02u_%02u%02u%02u_p%lu_t%lu.dmp",
+            now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond,
+            GetCurrentProcessId(), GetCurrentThreadId());
+
+        if (!BuildDiagnosticPath(dumpPath, dumpPathSize, dumpName))
+        {
+            if (errorCode) *errorCode = ERROR_BUFFER_OVERFLOW;
+            return false;
+        }
+
+        HANDLE dumpFile = CreateFileA(dumpPath, GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (dumpFile == INVALID_HANDLE_VALUE)
+        {
+            if (errorCode) *errorCode = GetLastError();
+            return false;
+        }
+
+        MINIDUMP_EXCEPTION_INFORMATION exception = {};
+        exception.ThreadId = GetCurrentThreadId();
+        exception.ExceptionPointers = exceptionInfo;
+        exception.ClientPointers = FALSE;
+
+        MINIDUMP_TYPE dumpType = static_cast<MINIDUMP_TYPE>(
+            MiniDumpWithIndirectlyReferencedMemory |
+            MiniDumpScanMemory |
+            MiniDumpWithThreadInfo |
+            MiniDumpWithUnloadedModules |
+            MiniDumpWithFullMemoryInfo);
+
+        BOOL success = MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), dumpFile,
+            dumpType, &exception, nullptr, nullptr);
+        DWORD result = success ? ERROR_SUCCESS : GetLastError();
+        CloseHandle(dumpFile);
+
+        if (!success)
+        {
+            DeleteFileA(dumpPath);
+            if (errorCode) *errorCode = result;
+            return false;
+        }
+        return true;
+    }
 
     // Vectored Exception Handler - fires BEFORE all other handlers.
     // This is critical for catching __debugbreak() raised by the debug CRT
@@ -101,7 +233,9 @@ private:
         char message[512];
         sprintf_s(message, sizeof(message),
             "A critical error has occurred (0x%08lX).\n\n"
-            "Details have been logged to crash_log.txt\n\n"
+            "Details have been logged beside Tatou.exe:\n"
+            "- crash_log.txt\n"
+            "- crash_dump_*.dmp\n\n"
             "The application will now terminate.",
             exceptionInfo->ExceptionRecord->ExceptionCode);
 
@@ -115,7 +249,7 @@ private:
     {
         if (!crashLogFile)
         {
-            fopen_s(&crashLogFile, "crash_log.txt", "a");
+            OpenCrashLog("a");
         }
         if (!crashLogFile) return;
 
@@ -140,7 +274,7 @@ private:
             return 0; // Let CRT handle it normally
 
         // Log the CRT message but don't break/abort
-        if (!crashLogFile) fopen_s(&crashLogFile, "crash_log.txt", "a");
+        if (!crashLogFile) OpenCrashLog("a");
         if (crashLogFile)
         {
             fprintf(crashLogFile, "[CRT_REPORT type=%d] %s\n", reportType, message ? message : "(null)");
@@ -165,7 +299,7 @@ private:
     {
         if (!crashLogFile)
         {
-            fopen_s(&crashLogFile, "crash_log.txt", "a");
+            OpenCrashLog("a");
         }
 
         if (!crashLogFile) return;
@@ -179,6 +313,18 @@ private:
         fprintf(crashLogFile, "Exception Code: 0x%08lX\n", exceptionInfo->ExceptionRecord->ExceptionCode);
         fprintf(crashLogFile, "Exception Address: 0x%p\n", exceptionInfo->ExceptionRecord->ExceptionAddress);
         fprintf(crashLogFile, "Exception Flags: 0x%08lX\n", exceptionInfo->ExceptionRecord->ExceptionFlags);
+        fprintf(crashLogFile, "Process ID: %lu\n", GetCurrentProcessId());
+        fprintf(crashLogFile, "Thread ID: %lu\n", GetCurrentThreadId());
+
+        char executablePath[32768] = {};
+        char workingDirectory[32768] = {};
+        GetModuleFileNameA(nullptr, executablePath, static_cast<DWORD>(sizeof(executablePath)));
+        GetCurrentDirectoryA(static_cast<DWORD>(sizeof(workingDirectory)), workingDirectory);
+        fprintf(crashLogFile, "Executable: %s\n", executablePath);
+        fprintf(crashLogFile, "Working Directory: %s\n", workingDirectory);
+        fprintf(crashLogFile, "Command Line: %s\n", GetCommandLineA());
+        LogAddressModule(crashLogFile, "Faulting Module",
+            reinterpret_cast<DWORD64>(exceptionInfo->ExceptionRecord->ExceptionAddress));
 
         // Decode common exception codes
         switch (exceptionInfo->ExceptionRecord->ExceptionCode)
@@ -221,6 +367,25 @@ private:
             break;
         }
 
+#ifdef _M_AMD64
+        fprintf(crashLogFile,
+            "\nRegisters:\n"
+            "  RIP=0x%016llX RSP=0x%016llX RBP=0x%016llX\n"
+            "  RAX=0x%016llX RBX=0x%016llX RCX=0x%016llX RDX=0x%016llX\n"
+            "  RSI=0x%016llX RDI=0x%016llX R8 =0x%016llX R9 =0x%016llX\n"
+            "  R10=0x%016llX R11=0x%016llX R12=0x%016llX R13=0x%016llX\n"
+            "  R14=0x%016llX R15=0x%016llX EFlags=0x%08lX\n",
+            exceptionInfo->ContextRecord->Rip, exceptionInfo->ContextRecord->Rsp,
+            exceptionInfo->ContextRecord->Rbp, exceptionInfo->ContextRecord->Rax,
+            exceptionInfo->ContextRecord->Rbx, exceptionInfo->ContextRecord->Rcx,
+            exceptionInfo->ContextRecord->Rdx, exceptionInfo->ContextRecord->Rsi,
+            exceptionInfo->ContextRecord->Rdi, exceptionInfo->ContextRecord->R8,
+            exceptionInfo->ContextRecord->R9, exceptionInfo->ContextRecord->R10,
+            exceptionInfo->ContextRecord->R11, exceptionInfo->ContextRecord->R12,
+            exceptionInfo->ContextRecord->R13, exceptionInfo->ContextRecord->R14,
+            exceptionInfo->ContextRecord->R15, exceptionInfo->ContextRecord->EFlags);
+#endif
+
         // Get stack trace
         fprintf(crashLogFile, "\nStack Trace:\n");
         
@@ -247,19 +412,23 @@ private:
         HANDLE process = GetCurrentProcess();
         HANDLE thread = GetCurrentThread();
         
-        // Initialize symbol handler
-        SymInitialize(process, NULL, TRUE);
+        // Initialize symbol handling. RelWithDebInfo builds place Tatou.pdb next
+        // to the executable, and DbgHelp also discovers symbols for DLL frames.
+        SymSetOptions(SymGetOptions() | SYMOPT_LOAD_LINES | SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
+        BOOL initializedSymbols = SymInitialize(process, nullptr, TRUE);
+        if (!initializedSymbols && GetLastError() != ERROR_INVALID_PARAMETER)
+            fprintf(crashLogFile, "  (symbol initialization failed: Win32 error %lu)\n", GetLastError());
+        else
+            SymRefreshModuleList(process);
         
         int frameNum = 0;
-        while (StackWalk64(machineType, process, thread, &stackFrame, &context,
-            NULL, SymFunctionTableAccess64, SymGetModuleBase64, NULL))
+        DWORD64 previousAddress = 0;
+        while (stackFrame.AddrPC.Offset != 0 && frameNum < 32)
         {
-            if (frameNum >= 20) break; // Limit stack depth
-            
             fprintf(crashLogFile, "  [%d] 0x%016llX", frameNum, stackFrame.AddrPC.Offset);
             
             // Try to get symbol information
-            char buffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)];
+            char buffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME] = {};
             PSYMBOL_INFO symbol = (PSYMBOL_INFO)buffer;
             symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
             symbol->MaxNameLen = MAX_SYM_NAME;
@@ -269,6 +438,12 @@ private:
             {
                 fprintf(crashLogFile, " - %s+0x%llX", symbol->Name, displacement);
             }
+
+            IMAGEHLP_MODULE64 moduleInfo = {};
+            moduleInfo.SizeOfStruct = sizeof(moduleInfo);
+            if (SymGetModuleInfo64(process, stackFrame.AddrPC.Offset, &moduleInfo))
+                fprintf(crashLogFile, " [%s+0x%llX]", moduleInfo.ModuleName,
+                    stackFrame.AddrPC.Offset - moduleInfo.BaseOfImage);
             
             // Try to get line information
             IMAGEHLP_LINE64 line;
@@ -281,9 +456,26 @@ private:
             
             fprintf(crashLogFile, "\n");
             frameNum++;
+
+            previousAddress = stackFrame.AddrPC.Offset;
+            if (!StackWalk64(machineType, process, thread, &stackFrame, &context,
+                nullptr, SymFunctionTableAccess64, SymGetModuleBase64, nullptr) ||
+                stackFrame.AddrPC.Offset == previousAddress)
+                break;
         }
-        
-        SymCleanup(process);
+
+        LogLoadedModules(crashLogFile);
+
+        char dumpPath[32768] = {};
+        DWORD dumpError = ERROR_SUCCESS;
+        fflush(crashLogFile);
+        if (WriteMiniDump(exceptionInfo, dumpPath, sizeof(dumpPath), &dumpError))
+            fprintf(crashLogFile, "\nMinidump: %s\n", dumpPath);
+        else
+            fprintf(crashLogFile, "\nMinidump creation failed: Win32 error %lu\n", dumpError);
+
+        if (initializedSymbols)
+            SymCleanup(process);
 
         fprintf(crashLogFile, "=== End of Exception Report ===\n\n");
         fflush(crashLogFile);
@@ -328,12 +520,14 @@ public:
 #endif
 
         // Create or clear crash log
-        fopen_s(&crashLogFile, "crash_log.txt", "w");
+        OpenCrashLog("w");
         if (crashLogFile)
         {
             fprintf(crashLogFile, "=== Application Started - Exception Handler Active ===\n");
             fprintf(crashLogFile, "Continue on heap corruption: %s\n", continueOnHeapCorruption ? "YES" : "NO");
             fprintf(crashLogFile, "Vectored Exception Handler: %s\n", vehHandle ? "REGISTERED" : "FAILED");
+            fprintf(crashLogFile, "Crash output directory: executable directory\n");
+            fprintf(crashLogFile, "Minidumps: ENABLED\n");
 #ifdef _DEBUG
             fprintf(crashLogFile, "CRT debug heap checks: REDUCED (DOS compatibility mode)\n");
             fprintf(crashLogFile, "CRT report hook: INSTALLED\n");
@@ -359,7 +553,7 @@ public:
             vehHandle = nullptr;
         }
 
-        if (!crashLogFile) fopen_s(&crashLogFile, "crash_log.txt", "a");
+        if (!crashLogFile) OpenCrashLog("a");
         if (crashLogFile)
         {
             fprintf(crashLogFile, "\n=== Shutdown ===\n");

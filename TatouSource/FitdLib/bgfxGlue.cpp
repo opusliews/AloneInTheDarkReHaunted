@@ -28,6 +28,8 @@
 #include "debugger.h"
 #include "osystem.h"
 #include "menuFade.h"
+#include "objectInspector.h"
+#include "scenarioTester.h"
 
 #if BX_PLATFORM_OSX
 extern "C" {
@@ -149,6 +151,8 @@ static uint32_t getMsaaResetFlags()
 
 void StartFrame()
 {
+    objectInspectorBeginFrame();
+
     int oldResolution[2];
     oldResolution[0] = outputResolution[0];
     oldResolution[1] = outputResolution[1];
@@ -343,6 +347,11 @@ void EndFrame()
     // Render TTF text overlay before ImGui render
     renderTTFText();
 
+    // Debug-only gameplay overlay. Labels were captured from actors actually
+    // submitted by the current frame's 3D object draw loop.
+    objectInspectorRender(outputResolution[0], outputResolution[1]);
+    scenarioRender(outputResolution[0], outputResolution[1]);
+
     // Always call imguiEndFrame() to render ImGui windows to bgfx
     imguiEndFrame();
 
@@ -525,6 +534,12 @@ int initBgfxGlue(int argc, char* argv[])
     else {
         ImGui_ImplSDL3_InitForOther(gWindowBGFX);
     }
+
+    // ReHaunted renders ImGui on its game thread, but SDL 3 requires its IME
+    // StartTextInput/StopTextInput calls on the main thread. The inspector
+    // requests those transitions through input.cpp instead of allowing the
+    // backend callback to invoke SDL from the render thread.
+    ImGui::GetPlatformIO().Platform_SetImeDataFn = nullptr;
 
     // Initialize TTF font system
     // Note: This adds fonts after imguiCreate() has already built the font atlas.

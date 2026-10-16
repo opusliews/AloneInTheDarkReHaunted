@@ -10,9 +10,14 @@
 
 #include "embeddedData.h"
 #include "../configRemaster.h"
+#include "../scenarioTester.h"
 
 bool getEmbeddedFile(const char* filename, const unsigned char** outData, size_t* outSize)
 {
+    // TatouScenario patch set: in-memory replacement files (no-op otherwise).
+    if (scenarioOverrideFile(filename, outData, outSize))
+        return true;
+
     if (g_remasterConfig.gameData.jackMode)
     {
         // In JACK mode, prefer JACK assets and fall back to AITD1 only for
