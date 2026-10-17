@@ -151,6 +151,7 @@ std::atomic<int> s_nudgeRequested{ 0 };
 // F5: LIFE 11 (rifle) fires while var 13 > 0, LIFE 13 (revolver) while var 92 > 0;
 // each shot subtracts 1, reloading adds 8 / 6. Topped up every gameplay frame.
 std::atomic_bool s_infiniteAmmo{ false };
+std::atomic_bool s_noclip{ false };
 
 // Patch set: replacement game files served in memory (getEmbeddedFile and
 // the PAK/ITD loaders ask scenarioOverrideFile first). Replaced buffers are
@@ -1387,9 +1388,46 @@ void scenarioToggleInfiniteAmmo()
 #endif
 }
 
+void scenarioToggleNoclip()
+{
+#if defined(AITD_SCENARIO_BUILD) && !defined(AITD_SCENARIO_CAPTURE_ONLY)
+    const bool on = !s_noclip.load();
+    s_noclip = on;
+    showMessage(false, std::string("noclip ") + (on ? "ON: walls and actors don't block the player (zones still trigger); F7 saves the spot" : "OFF"));
+#endif
+}
+
+bool scenarioNoclipActive()
+{
+#if defined(AITD_SCENARIO_BUILD) && !defined(AITD_SCENARIO_CAPTURE_ONLY)
+    return s_noclip.load();
+#else
+    return false;
+#endif
+}
+
 void scenarioRender(int outputWidth, int outputHeight)
 {
 #ifdef AITD_SCENARIO_BUILD
+    if (s_noclip.load() && outputWidth > 0)
+    {
+        // the player's position in the form scenarios use (player <floor> <room> <x> <y> <z> <beta>)
+        char label[160] = "NOCLIP [N]";
+        const int actor = currentCameraTargetActor;
+        if (actor >= 0 && actor < (int)ListObjets.size() && ListObjets[actor].indexInWorld == playerObject())
+        {
+            const tObject& p = ListObjets[actor];
+            std::snprintf(label, sizeof(label), "NOCLIP [N]   player %d %d %d %d %d %d   camera %d",
+                p.stage, p.room, p.roomX + p.stepX, p.roomY + p.stepY, p.roomZ + p.stepZ, p.beta,
+                (int)NumCamera);
+        }
+        const ImVec2 size = ImGui::CalcTextSize(label);
+        const float x = static_cast<float>(outputWidth) - size.x - 12.0f;
+        const float y = s_infiniteAmmo.load() ? 8.0f + size.y + 8.0f : 8.0f;
+        ImDrawList* fg = ImGui::GetForegroundDrawList();
+        fg->AddRectFilled(ImVec2(x - 4, y - 2), ImVec2(x + size.x + 4, y + 2 + size.y), IM_COL32(0, 0, 0, 215), 3);
+        fg->AddText(ImVec2(x, y), IM_COL32(120, 220, 255, 255), label);
+    }
     if (s_infiniteAmmo.load() && outputWidth > 0)
     {
         const char* label = "INFINITE AMMO [F5]";

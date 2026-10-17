@@ -10,6 +10,7 @@
 #include "common.h"
 #include "hybrid.h"
 #include "randomizerExperiment.h"
+#include "scenarioTester.h"
 #include "configRemaster.h"
 
 hqrEntryStruct<sAnimation>* HQ_Anims = nullptr;
@@ -461,6 +462,10 @@ void GereAnim(void)
 		zvLocal.ZVZ1 += stepZ;
 		zvLocal.ZVZ2 += stepZ;
 
+        // TatouScenario noclip (N): the player passes walls and actors; zone flags still update
+        const bool noclip = scenarioNoclipActive() &&
+            currentProcessedActorPtr->indexInWorld == CVars[getCVarsIdx(WORLD_NUM_PERSO)];
+
         // check for wall collisions
 		if(currentProcessedActorPtr->dynFlags & 1) // hard collision enabled for actor ?
 		{
@@ -487,7 +492,7 @@ void GereAnim(void)
                         continue;
                 }
 
-				if(stepX || stepZ) // move on the X or Z axis ? update to avoid entering the hard col
+				if((stepX || stepZ) && !noclip) // move on the X or Z axis ? update to avoid entering the hard col
 				{
 					//ZVStruct tempZv;
 
@@ -529,7 +534,7 @@ void GereAnim(void)
         // check for object collisions
         // TODO: AITD2 checks flag collision here
 		randomizerExperimentHandleDirectPickup(currentProcessedActorPtr, &zvLocal);
-		int numCol = CheckObjectCol(currentProcessedActorIdx,&zvLocal); // get the number of actor/actor collision
+		int numCol = noclip ? 0 : CheckObjectCol(currentProcessedActorIdx,&zvLocal); // get the number of actor/actor collision
 		for(int j=0;j<numCol;j++) // process the actor/actor collision
 		{
 			int collisionIndex = currentProcessedActorPtr->COL[j];

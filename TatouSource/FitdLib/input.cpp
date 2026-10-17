@@ -93,6 +93,12 @@ void handleKeyDown(SDL_Event& event)
         return;
     }
 
+    if (event.key.scancode == SDL_SCANCODE_N && !event.key.repeat)
+    {
+        scenarioToggleNoclip();
+        return;
+    }
+
     if (event.key.scancode == SDL_SCANCODE_F6)
     {
         scenarioRequestNudge((event.key.mod & SDL_KMOD_SHIFT) ? -1 : 1);

@@ -40,6 +40,8 @@ void scenarioRequestReapply(); // F10: reload the file, reset to a new game, app
 void scenarioRequestCapture(); // F7: write the current state as a scenario file
 void scenarioRequestNudge(int direction); // F6: +1 forward, -1 back (Shift+F6), past actors
 void scenarioToggleInfiniteAmmo();        // F5: rifle/revolver ammo never runs out
+void scenarioToggleNoclip();              // N: the player walks through walls and actors
+bool scenarioNoclipActive();              // false outside TatouScenario (and in the edition)
 
 // F8 inspector colour of a search zone ("F2:R0:HC19"), from search_zones.txt in the active
 // patch set (randomized run) or scenarios/search_zones_vanilla.txt (Generated/Generator/
