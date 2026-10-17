@@ -163,6 +163,16 @@ int FitdInit(int argc, char* argv[])
             for (int i = 0; i < 96; i++) p[i] = (char)0xAB;
             strictHeapCheck("self-test (AITD_STRICT_SELFTEST=1)");
         }
+        // Self-test of the stall watchdog: AITD_STRICT_STALLTEST=1 freezes 5 s between two beats.
+        if (GetEnvironmentVariableA("AITD_STRICT_STALLTEST", buf, sizeof(buf)) && buf[0] == '1')
+        {
+            TRAIL("stall self-test: freezing 5 s");
+            ExceptionHandler::StrictHeartbeat();
+            Sleep(5000);
+            ExceptionHandler::StrictHeartbeat();
+            Sleep(1000);                      // the watchdog writes the stall report
+            ExitProcess(0);
+        }
     }
 #else
     ExceptionHandler::Initialize(true);
@@ -402,6 +412,9 @@ u32 osystem_startOfFrame()
 
 void osystem_endOfFrame()
 {
+#ifdef AITD_HEAP_STRICT
+    ExceptionHandler::StrictHeartbeat();   // TatouScenarioStrict stall watchdog
+#endif
     osystem_flushPendingPrimitives();
 
     osystem_drawUILayer();

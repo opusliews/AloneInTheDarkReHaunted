@@ -76,11 +76,20 @@ void eventTrail(const char* fmt, ...)
     ReleaseSRWLockExclusive(&s_lock);
 }
 
+void eventTrailWriteLast(FILE* f, int last);
+
 // Called by the strict stop (exceptionHandler.h). Does not take the lock: the stopping
 // thread may have been interrupted while holding it.
 void eventTrailWrite(FILE* f)
 {
+    eventTrailWriteLast(f, TRAIL_SIZE);
+}
+
+// The last `last` events (the stall report uses 60; read without the lock, as above).
+void eventTrailWriteLast(FILE* f, int last)
+{
     long long n = g_eventTrailCount < TRAIL_SIZE ? g_eventTrailCount : TRAIL_SIZE;
+    if (n > last) n = last;
     fprintf(f, "Event trail: last %lld of %lld events (frame, seconds, thread: game = g, other = id):\n",
         n, g_eventTrailCount);
     for (long long i = g_eventTrailCount - n; i < g_eventTrailCount; i++)

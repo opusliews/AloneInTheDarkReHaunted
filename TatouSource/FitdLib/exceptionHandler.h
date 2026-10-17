@@ -521,8 +521,10 @@ private:
         DWORD threadId;
         ULONG64 exceptionPointers;     // address in the game process (ClientPointers = TRUE)
         DWORD result;                  // Win32 error, 0 = written
+        DWORD smallDump;               // 1 = stall dump: stacks and globals, no heap
         char dumpPath[2048];
     };
+    static inline SRWLOCK strictHelperLock = SRWLOCK_INIT;   // one request at a time
     static inline StrictShared* strictShared = nullptr;
     static inline HANDLE strictRequest = nullptr, strictDone = nullptr;
     static inline volatile DWORD strictStopThread = 0;
@@ -582,15 +584,32 @@ public:
         if (!proc || !map || !req || !done) return true;
         StrictShared* sh = (StrictShared*)MapViewOfFile(map, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(StrictShared));
         HANDLE waits[2] = { req, proc };
-        if (!sh || WaitForMultipleObjects(2, waits, FALSE, INFINITE) != WAIT_OBJECT_0) return true;
+        // serve requests (stall dumps, then possibly the final stop) until the game exits
+        while (sh && WaitForMultipleObjects(2, waits, FALSE, INFINITE) == WAIT_OBJECT_0)
+        {
+            StrictHelperWrite(proc, pid, sh);
+            SetEvent(done);
+        }
+        return true;
+    }
 
+    static MINIDUMP_TYPE StrictSmallDumpType()
+    {
+        return static_cast<MINIDUMP_TYPE>(MiniDumpWithIndirectlyReferencedMemory | MiniDumpScanMemory |
+            MiniDumpWithThreadInfo | MiniDumpWithUnloadedModules | MiniDumpWithFullMemoryInfo |
+            MiniDumpWithDataSegs | MiniDumpWithHandleData);
+    }
+
+    static void StrictHelperWrite(HANDLE proc, DWORD pid, StrictShared* sh)
+    {
         HANDLE file = CreateFileA(sh->dumpPath, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (file == INVALID_HANDLE_VALUE) { sh->result = GetLastError(); SetEvent(done); return true; }
+        if (file == INVALID_HANDLE_VALUE) { sh->result = GetLastError(); return; }
         MINIDUMP_EXCEPTION_INFORMATION mei = {};
         mei.ThreadId = sh->threadId;
         mei.ExceptionPointers = (PEXCEPTION_POINTERS)sh->exceptionPointers;
         mei.ClientPointers = TRUE;
-        BOOL ok = MiniDumpWriteDump(proc, pid, file, StrictDumpType(), sh->exceptionPointers ? &mei : nullptr, nullptr, nullptr);
+        BOOL ok = MiniDumpWriteDump(proc, pid, file, sh->smallDump ? StrictSmallDumpType() : StrictDumpType(),
+            sh->exceptionPointers ? &mei : nullptr, nullptr, nullptr);
         if (!ok)
         {
             // e.g. 0x8007012B (partial copy, 2026-10-16): retry without the private memory
@@ -602,8 +621,104 @@ public:
         }
         sh->result = ok ? 0 : GetLastError();
         CloseHandle(file);
-        SetEvent(done);
-        return true;
+    }
+
+public:
+    // ---- stall watchdog -------------------------------------------------------------------
+    // osystem_endOfFrame (every screen, game thread) beats; a watchdog thread notices frames
+    // that take long: >= 1 s is logged with the recent events, >= STALL_DUMP_S (default 4,
+    // AITD_STALL_DUMP_SECONDS) also gets a stack dump through the helper while the game keeps
+    // running (first 3 per session). No dumps in the first 20 s (start-up loading).
+    static inline volatile LONG64 strictBeat = 0;            // QPC ticks of the last frame end
+    static inline volatile LONG64 strictBeats = 0;
+    static inline volatile DWORD strictGameThread = 0;
+
+    static void StrictHeartbeat()
+    {
+        LARGE_INTEGER t; QueryPerformanceCounter(&t);
+        if (!strictBeat)
+        {
+            strictGameThread = GetCurrentThreadId();
+            InterlockedExchange64(&strictBeat, t.QuadPart);
+            HANDLE th = CreateThread(nullptr, 0, StrictWatchdog, nullptr, 0, nullptr);
+            if (th) CloseHandle(th);
+        }
+        InterlockedExchange64(&strictBeat, t.QuadPart);
+        InterlockedIncrement64(&strictBeats);
+    }
+
+private:
+    // Asks the helper for a dump; false if there is no helper or it failed.
+    static bool StrictRequestDump(const char* dumpName, DWORD threadId, EXCEPTION_POINTERS* ep, bool smallDump,
+        char* dumpPath, size_t dumpPathSize, DWORD* error)
+    {
+        *error = ERROR_NOT_READY;
+        if (!strictShared || !BuildDiagnosticPath(dumpPath, dumpPathSize, dumpName))
+            return false;
+        AcquireSRWLockExclusive(&strictHelperLock);
+        strcpy_s(strictShared->dumpPath, sizeof(strictShared->dumpPath), dumpPath);
+        strictShared->threadId = threadId;
+        strictShared->exceptionPointers = (ULONG64)ep;
+        strictShared->smallDump = smallDump ? 1 : 0;
+        strictShared->result = ERROR_TIMEOUT;
+        SetEvent(strictRequest);
+        *error = WaitForSingleObject(strictDone, 10 * 60 * 1000) == WAIT_OBJECT_0 ? strictShared->result : ERROR_TIMEOUT;
+        ReleaseSRWLockExclusive(&strictHelperLock);
+        return *error == ERROR_SUCCESS;
+    }
+
+    static DWORD WINAPI StrictWatchdog(LPVOID)
+    {
+        LARGE_INTEGER freq; QueryPerformanceFrequency(&freq);
+        char buf[32] = {};
+        double dumpAfter = GetEnvironmentVariableA("AITD_STALL_DUMP_SECONDS", buf, sizeof(buf)) && atof(buf) > 0 ? atof(buf) : 4.0;
+        const bool stallTest = GetEnvironmentVariableA("AITD_STRICT_STALLTEST", buf, sizeof(buf)) && buf[0] == '1';
+        int dumps = 0;
+        LONG64 stallBeat = 0;            // the beat the current stall started from
+        bool dumped = false;
+        char dumpPath[2048] = {};
+        for (;;)
+        {
+            Sleep(250);
+            if (strictStopThread) return 0;
+            LARGE_INTEGER now; QueryPerformanceCounter(&now);
+            LONG64 beat = strictBeat;
+            double since = double(now.QuadPart - beat) / double(freq.QuadPart);
+            if (stallBeat && beat != stallBeat)
+            {
+                // the stall is over: log it with the events before and during it
+                double length = double(beat - stallBeat) / double(freq.QuadPart);
+                if (!crashLogFile) OpenCrashLog("a");
+                if (crashLogFile)
+                {
+                    fprintf(crashLogFile, "\n=== STALL: a frame took %.2f s (ended %.3f s after start, frame %lld) ===\n",
+                        length, StrictNow(), (long long)strictBeats);
+                    if (dumped) fprintf(crashLogFile, "Stall dump (taken during the stall): %s\n", dumpPath);
+                    void eventTrailWriteLast(FILE*, int);
+                    eventTrailWriteLast(crashLogFile, 60);
+                    fprintf(crashLogFile, "=== End of stall report ===\n");
+                    fclose(crashLogFile);
+                    crashLogFile = nullptr;
+                }
+                stallBeat = 0;
+                dumped = false;
+            }
+            if (!stallBeat && since >= 1.0)
+                stallBeat = beat;
+            if (stallBeat && !dumped && since >= dumpAfter && dumps < 3 && (StrictNow() > 20.0 || stallTest))
+            {
+                SYSTEMTIME st; GetLocalTime(&st);
+                char name[128];
+                sprintf_s(name, sizeof(name), "stall_dump_%04u%02u%02u_%02u%02u%02u_p%lu.dmp",
+                    st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, GetCurrentProcessId());
+                DWORD error;
+                if (StrictRequestDump(name, strictGameThread, nullptr, true, dumpPath, sizeof(dumpPath), &error))
+                    dumps++;
+                else
+                    sprintf_s(dumpPath, sizeof(dumpPath), "(failed: Win32 error %lu)", error);
+                dumped = true;
+            }
+        }
     }
 
 private:
@@ -625,18 +740,9 @@ private:
         char dumpName[128];
         sprintf_s(dumpName, sizeof(dumpName), "strict_dump_%04u%02u%02u_%02u%02u%02u_p%lu_t%lu.dmp",
             now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond, GetCurrentProcessId(), self);
-        if (strictShared && BuildDiagnosticPath(dumpPath, sizeof(dumpPath), dumpName))
+        if (strictShared)
         {
-            strcpy_s(strictShared->dumpPath, sizeof(strictShared->dumpPath), dumpPath);
-            strictShared->threadId = self;
-            strictShared->exceptionPointers = (ULONG64)exceptionInfo;
-            strictShared->result = ERROR_TIMEOUT;
-            SetEvent(strictRequest);
-            if (WaitForSingleObject(strictDone, 10 * 60 * 1000) == WAIT_OBJECT_0)
-                dumpError = strictShared->result;
-            else
-                dumpError = ERROR_TIMEOUT;
-            dumped = dumpError == ERROR_SUCCESS;
+            dumped = StrictRequestDump(dumpName, self, exceptionInfo, false, dumpPath, sizeof(dumpPath), &dumpError);
         }
         else
         {
@@ -757,6 +863,7 @@ public:
         SetUnhandledExceptionFilter(UnhandledExceptionFilter);
 
 #ifdef AITD_HEAP_STRICT
+        StrictNow();                      // the strict clock starts with the process
         StrictStartHelper();
 #endif
 
@@ -793,6 +900,7 @@ public:
 #ifdef AITD_HEAP_STRICT
             fprintf(crashLogFile, "STRICT BUILD (TatouScenarioStrict): stops on heap corruption, full dumps, heap check every game frame\n");
             fprintf(crashLogFile, "Strict dump helper process: %s\n", strictShared ? "STARTED" : "FAILED (in-process dumps)");
+            fprintf(crashLogFile, "Stall watchdog: frames >= 1 s logged, >= 4 s (AITD_STALL_DUMP_SECONDS) get a stack dump (max 3)\n");
 #endif
 #ifdef _DEBUG
             fprintf(crashLogFile, "CRT debug heap checks: REDUCED (DOS compatibility mode)\n");
