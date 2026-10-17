@@ -217,7 +217,7 @@ static int s_loopActor = -1;          // ListObjets index of the actor whose scr
 // source, fading linearly to LOOP_MIN at LOOP_FAR. Unknown source: the original volume.
 static const float LOOP_NEAR = 1500.0f;
 static const float LOOP_FAR = 4750.0f;    // user 2026-10-17: fade twice as fast (was 8000)
-static const float LOOP_MIN = 0.3f;
+static const float LOOP_MIN = 0.0f;      // user 2026-10-17: fade to silence (was 0.3)
 
 // The talisman chimes (sample 89) are started by LIFE 186, which runs on the invisible
 // F2:R8 room controller OBJ 70 at the room origin; the sound belongs to the talisman, OBJ 110.
