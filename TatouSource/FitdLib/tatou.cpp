@@ -216,7 +216,7 @@ static int s_loopActor = -1;          // ListObjets index of the actor whose scr
 // Positional volume (option audio.positional_loops): full within LOOP_NEAR world units of the
 // source, fading linearly to LOOP_MIN at LOOP_FAR. Unknown source: the original volume.
 static const float LOOP_NEAR = 1500.0f;
-static const float LOOP_FAR = 14500.0f;   // user 2026-10-17: fade span x4 (1500..4750 -> 1500..14500), floor 0
+static const float LOOP_FAR = 9062.5f;    // user 2026-10-17: silent at 14500 * 0.625 (floor 0)
 static const float LOOP_MIN = 0.0f;      // user 2026-10-17: fade to silence (was 0.3)
 
 // The talisman chimes (sample 89) are started by LIFE 186, which runs on the invisible
