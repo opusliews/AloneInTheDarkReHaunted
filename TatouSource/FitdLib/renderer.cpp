@@ -1040,6 +1040,12 @@ void renderPoly(primEntryStruct* pEntry) // poly
     if (!s_currentAtlas)
         return;
 
+    // AITD Randomizer drop glow (transparent, palette bank 11; see GLOW_BANK in rendererBGFX.cpp):
+    // the base layer only. Its model has no HD atlas, so an auto-dumped opaque one was drawn
+    // over it and the glow looked solid over HD backgrounds (user, 2026-10-18).
+    if (pEntry->material == 2 && ((pEntry->color & 0xF0) >> 4) == 11)
+        return;
+
     // Overlay atlas texture on top of the base layer where UVs are available
 
     // Textured polygon primitives (type 9/10) - use flat atlas overlay
