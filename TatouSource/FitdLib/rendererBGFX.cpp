@@ -144,6 +144,15 @@ struct sphereVertex
 std::array<polyVertex, NUM_MAX_FLAT_VERTICES> flatVertices;
 std::array<polyVertex, NUM_MAX_NOISE_VERTICES> noiseVertices;
 std::array<polyVertex, NUM_MAX_TRANSPARENT_VERTICES> transparentVertices;
+// AITD Randomizer drop glow (Research/DropGlow.md): transparent polygons in palette bank 11 (no
+// vanilla model uses it for transparency) are drawn fainter than the 50 % of other transparent
+// polygons, fainter still over HD backgrounds (user, 2026-10-18).
+#define NUM_MAX_GLOW_VERTICES 500*3
+#define GLOW_BANK 11
+#define GLOW_BLEND_CLASSIC 0x4C4C4C4C   // 30 %
+#define GLOW_BLEND_HD 0x33333333        // 20 %
+std::array<polyVertex, NUM_MAX_GLOW_VERTICES> glowVertices;
+int numUsedGlowVertices = 0;
 std::array<polyVertex, NUM_MAX_RAMP_VERTICES> rampVertices;
 std::array<sphereVertex, NUM_MAX_SPHERES_VERTICES> sphereVertices;
 std::vector<polyVertex> g_lineVertices;
@@ -2747,7 +2756,7 @@ void osystem_stopFrame()
 void osystem_flushPendingPrimitives()
 {
     if (numUsedFlatVertices || numUsedNoiseVertices || numUsedRampVertices ||
-        numUsedSpheres || numUsedTransparentVertices || numUsedTexturedVertices ||
+        numUsedSpheres || numUsedTransparentVertices || numUsedGlowVertices || numUsedTexturedVertices ||
         !g_lineVertices.empty())
         g_3dFlushedThisFrame = true;
 
@@ -3092,6 +3101,40 @@ void osystem_flushPendingPrimitives()
         bgfx::submit(gameViewId, getFlatShader());
     }
 
+    if (numUsedGlowVertices)    // the randomizer's drop glow: as above, fainter
+    {
+        bgfx::VertexLayout layout;
+        layout
+            .begin()
+            .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
+            .add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
+            .end();
+
+        bgfx::TransientVertexBuffer transientBuffer;
+        bgfx::allocTransientVertexBuffer(&transientBuffer, numUsedGlowVertices, layout);
+
+        memcpy(transientBuffer.data, &glowVertices[0], sizeof(polyVertex) * numUsedGlowVertices);
+        applyShakeToVertices(transientBuffer.data, numUsedGlowVertices, sizeof(polyVertex));
+
+        bgfx::setState(0 | BGFX_STATE_WRITE_RGB
+            | BGFX_STATE_WRITE_A
+            | BGFX_STATE_DEPTH_TEST_LEQUAL
+            | BGFX_STATE_MSAA
+            | BGFX_STATE_CULL_CCW
+            | BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_FACTOR, BGFX_STATE_BLEND_INV_FACTOR)
+            , g_currentBackgroundIsHD ? GLOW_BLEND_HD : GLOW_BLEND_CLASSIC);
+
+        static bgfx::UniformHandle paletteTextureUniform = BGFX_INVALID_HANDLE;
+        if (!bgfx::isValid(paletteTextureUniform))
+        {
+            paletteTextureUniform = bgfx::createUniform("s_paletteTexture", bgfx::UniformType::Sampler);
+        }
+
+        bgfx::setTexture(1, paletteTextureUniform, g_paletteTexture);
+        bgfx::setVertexBuffer(0, &transientBuffer);
+        bgfx::submit(gameViewId, getFlatShader());
+    }
+
     if (numUsedTexturedVertices && bgfx::isValid(g_activeModelTexture))
     {
         bgfx::VertexLayout layout;
@@ -3135,6 +3178,7 @@ void osystem_flushPendingPrimitives()
     numPointPrimitives = 0;
     g_billboardAtlasKind = BillboardAtlas_Palette;
     numUsedTransparentVertices = 0;
+    numUsedGlowVertices = 0;
     numUsedTexturedVertices = 0;
     g_lineVertices.clear();
 }
@@ -3244,10 +3288,21 @@ void osystem_fillPoly(float* buffer, int numPoint, unsigned char color, u8 polyT
     case 2: // trans
     {
         int needed = (numPoint - 2) * 3;
-        if (numUsedTransparentVertices + needed > NUM_MAX_TRANSPARENT_VERTICES)
-            return;
-        polyVertex* pVertex = &transparentVertices[numUsedTransparentVertices];
-        numUsedTransparentVertices += needed;
+        polyVertex* pVertex;
+        if (((color & 0xF0) >> 4) == GLOW_BANK)      // the randomizer's drop glow
+        {
+            if (numUsedGlowVertices + needed > NUM_MAX_GLOW_VERTICES)
+                return;
+            pVertex = &glowVertices[numUsedGlowVertices];
+            numUsedGlowVertices += needed;
+        }
+        else
+        {
+            if (numUsedTransparentVertices + needed > NUM_MAX_TRANSPARENT_VERTICES)
+                return;
+            pVertex = &transparentVertices[numUsedTransparentVertices];
+            numUsedTransparentVertices += needed;
+        }
 
         for (int i = 0; i < numPoint; i++)
         {
