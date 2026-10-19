@@ -3915,7 +3915,12 @@ void osystem_createMask(const std::array<u8, 320 * 200>& mask, int roomId, int m
     int maskW = 320;
     int maskH = 200;
     const u8* maskData = mask.data();
+#ifdef AITD_HD_REPAINT_BUILD
+    // A custom background matches the vanilla frame, so the vanilla mask fits as is.
+    if (g_currentBackgroundIsHD && !g_hdCustomBackgroundActive)
+#else
     if (g_currentBackgroundIsHD)
+#endif
     {
         // Dump the generated mask to masks_dump/ at HD resolution for reference/editing
         // (controlled by remaster config - disabled by default for clean gameplay)

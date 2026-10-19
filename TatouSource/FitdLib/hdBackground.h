@@ -32,7 +32,17 @@ struct HDBackgroundInfo
     bool allFramesLoaded;        // true if all animation frames are loaded and ready
     int minFramesForPlayback;    // Minimum frames needed before starting playback (default 3)
     int loadedFrameCount;        // Number of frames actually loaded
+#ifdef AITD_HD_REPAINT_BUILD
+    bool isCustom;               // loaded from backgrounds_custom/ (1:1 with the vanilla frame)
+#endif
 };
+
+#ifdef AITD_HD_REPAINT_BUILD
+// TatouHd: true while the camera background comes from backgrounds_custom/.
+// Such images match the vanilla 320x200 frame 1:1, so the vanilla masks are
+// used and ReHaunted's masks_hd/ replacements are skipped.
+extern bool g_hdCustomBackgroundActive;
+#endif
 
 // Try to load HD version of background
 // Returns nullptr if no HD version found

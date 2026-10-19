@@ -1712,6 +1712,10 @@ void loadCamera(int cameraIdx)
         hdBg = loadHDBackground(name, cameraIdx, bgSuffix);
     }
 
+#ifdef AITD_HD_REPAINT_BUILD
+    g_hdCustomBackgroundActive = hdBg && hdBg->isCustom;
+#endif
+
     if (hdBg)
     {
         // HD background available

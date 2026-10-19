@@ -177,6 +177,10 @@ if(AITD_HEAP_STRICT)
     target_compile_definitions(FitdLib PRIVATE AITD_HEAP_STRICT=1)
 endif()
 
+if(AITD_HD_REPAINT_BUILD)
+    target_compile_definitions(FitdLib PRIVATE AITD_HD_REPAINT_BUILD=1)
+endif()
+
 if(AITD_RANDOMIZER_EDITION)
     # Release edition: only the F7 state capture of the scenario tester, for bug reports.
     target_compile_definitions(FitdLib PRIVATE AITD_RANDOMIZER_EDITION=1

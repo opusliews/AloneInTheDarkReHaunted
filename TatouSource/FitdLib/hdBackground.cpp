@@ -277,6 +277,56 @@ unsigned char* loadImageFromMemory(const unsigned char* buffer, int bufferSize, 
     return imageData;
 }
 
+#ifdef AITD_HD_REPAINT_BUILD
+bool g_hdCustomBackgroundActive = false;
+
+// TatouHd: backgrounds_custom/<name>_<idx>[_<suffix>].png overrides everything
+// else (animated, archive and backgrounds_hd/), at any resolution.
+static HDBackgroundInfo* loadCustomBackground(const char* backgroundName, int cameraIdx, const char* suffix)
+{
+    char filePath[512];
+    if (suffix && suffix[0] != '\0')
+        snprintf(filePath, sizeof(filePath), "backgrounds_custom/%s_%03d_%s.png", backgroundName, cameraIdx, suffix);
+    else
+        snprintf(filePath, sizeof(filePath), "backgrounds_custom/%s_%03d.png", backgroundName, cameraIdx);
+
+    FILE* testFile = nullptr;
+    fopen_s(&testFile, filePath, "rb");
+    if (!testFile)
+        return nullptr;
+    fclose(testFile);
+
+    int width, height, channels;
+    unsigned char* imageData = loadSingleFrame(filePath, &width, &height, &channels);
+    if (!imageData)
+    {
+        printf(HDBG_ERR "Failed to load custom background: %s" CON_RESET "\n", filePath);
+        return nullptr;
+    }
+
+    HDBackgroundInfo* bgInfo = (HDBackgroundInfo*)SAFE_MALLOC(sizeof(HDBackgroundInfo), __FILE__, __LINE__);
+    if (!bgInfo)
+    {
+        stbi_image_free(imageData);
+        return nullptr;
+    }
+    memset(bgInfo, 0, sizeof(HDBackgroundInfo));
+    bgInfo->data = imageData;
+    bgInfo->width = width;
+    bgInfo->height = height;
+    bgInfo->channels = channels;
+    bgInfo->frameCount = 1;
+    bgInfo->frameTime = 0.08f;
+    bgInfo->allFramesLoaded = true;
+    bgInfo->minFramesForPlayback = 1;
+    bgInfo->loadedFrameCount = 1;
+    bgInfo->isCustom = true;
+
+    printf(HDBG_OK "Loaded custom background: %s (%dx%d, %d channels)\n", filePath, width, height, channels);
+    return bgInfo;
+}
+#endif
+
 // Try to load HD version of background
 // Returns nullptr if no HD version found
 HDBackgroundInfo* loadHDBackground(const char* backgroundName, int cameraIdx, const char* suffix)
@@ -286,6 +336,11 @@ HDBackgroundInfo* loadHDBackground(const char* backgroundName, int cameraIdx, co
     {
         return nullptr;
     }
+
+#ifdef AITD_HD_REPAINT_BUILD
+    if (HDBackgroundInfo* custom = loadCustomBackground(backgroundName, cameraIdx, suffix))
+        return custom;
+#endif
 
     // Try archive first, then fall back to filesystem
     ensureArchiveOpen();

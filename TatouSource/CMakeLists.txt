@@ -14,6 +14,11 @@ option(AITD_HEAP_STRICT
 if(AITD_HEAP_STRICT)
     set(AITD_SCENARIO_BUILD ON CACHE BOOL "" FORCE)
 endif()
+option(AITD_HD_REPAINT_BUILD
+    "Build TatouHd: TatouScenario that loads 1:1 repainted HD backgrounds from backgrounds_custom/ with the vanilla masks" OFF)
+if(AITD_HD_REPAINT_BUILD)
+    set(AITD_SCENARIO_BUILD ON CACHE BOOL "" FORCE)
+endif()
 option(AITD_RANDOMIZER_EDITION
     "Build the randomizer's ReHaunted edition: no embedded game data (reads the player's own files)" OFF)
 
