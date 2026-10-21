@@ -139,11 +139,12 @@ namespace SoLoud
             }
         }
 
-        SDL_GetAudioDeviceFormat(
-            gBackendData.audioDeviceId,
-            &gBackendData.activeAudioSpec,
-            NULL
-        );
+        // The stream's spec is the app side: SDL converts it to whatever the
+        // device runs at (and follows default-device changes). SoLoud must mix
+        // in the stream's format, not the device's. Using the device format here
+        // made audio play slow and low on devices not running at aSamplerate
+        // (e.g. 48 kHz with the 44.1 kHz default), and garbled with more channels.
+        gBackendData.activeAudioSpec = as;
 
         aSoloud->postinit_internal(
             gBackendData.activeAudioSpec.freq,
