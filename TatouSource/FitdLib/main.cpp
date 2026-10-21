@@ -3721,6 +3721,24 @@ void drawShadowMaskStencilPrepass()
     }
 }
 
+// AITD1: the collapsing floor in the first-floor corridor (stage 1, room 1).
+// LIFE 38 deletes the floor model OBJ 30 when the floor gives way. The player's
+// fall animation then lowers the model through the floor, but the actor itself
+// stays at floor level, so its shadows would stay on the floor. Hide the player's
+// shadows from then on, on the two cameras that show the hole (CAMERA01 002/003).
+static bool hideShadowFloorHoleFall(int actorIdx)
+{
+    if (g_gameId != AITD1 || g_currentFloor != 1 || actorIdx != currentCameraTargetActor)
+        return false;
+    if ((int)ListWorldObjets.size() <= 30 || ListWorldObjets[30].room != -1)
+        return false;
+    if (currentRoom < 0 || currentRoom >= (int)roomDataTable.size() || NumCamera < 0 ||
+        NumCamera >= (int)roomDataTable[currentRoom].cameraIdxTable.size())
+        return false;
+    const int camera = roomDataTable[currentRoom].cameraIdxTable[NumCamera];
+    return camera == 2 || camera == 3;
+}
+
 void drawSceneObjects()
 {
     SetClip(0, 0, 319, 199);
@@ -3757,6 +3775,8 @@ void drawSceneObjects()
         // Bytecode patch: hide shadow for actors still flagged hidden (e.g. Zombie
         // Chickens behind a window before they crash through).
         if (shouldDrawShadows && bytecodePatch_shouldHideShadowForActor(actorPtr))
+            shouldDrawShadows = false;
+        if (shouldDrawShadows && hideShadowFloorHoleFall(currentDrawActor))
             shouldDrawShadows = false;
 
         // Non-character objects (doors, etc.) only cast shadows while moving
@@ -3909,6 +3929,8 @@ void AllRedraw(int flagFlip)
                         // Bytecode patch: hide shadow for actors still flagged hidden
                         // (e.g. Zombie Chickens behind a window before they crash through).
                         if (shouldDrawShadows && bytecodePatch_shouldHideShadowForActor(actorPtr))
+                            shouldDrawShadows = false;
+                        if (shouldDrawShadows && hideShadowFloorHoleFall(currentDrawActor))
                             shouldDrawShadows = false;
 
                         // Non-character objects (doors, etc.) only cast shadows while moving
