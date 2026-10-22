@@ -276,6 +276,13 @@ extern int unkScreenVar2;
 
 extern std::vector<s16> CVars;
 
+// Smoke cloud (special effect 4) timing in timer ticks, from the original engine
+// (INDARK.EXE 17ae:054b): FOG_FLAG becomes 2 (the player coughs) at HIT, the cloud
+// spreads until FADE, shrinks away and ends at END.
+#define SMOKE_CLOUD_HIT  480
+#define SMOKE_CLOUD_FADE 540
+#define SMOKE_CLOUD_END  660
+
 extern char* PtrPrioritySample;
 
 extern char* PtrFont;

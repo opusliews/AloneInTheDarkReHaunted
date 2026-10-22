@@ -492,7 +492,12 @@ int InitSpecialObjet(int mode, int X, int Y, int Z, int stage, int room, int alp
         currentActorPtr->zv.ZVZ1 = Z - 12;
         currentActorPtr->zv.ZVZ2 = Z + 12;
 
-        currentActorPtr->END_FRAME = 50; // lifetime in frames
+        // As the original engine: the cloud lives SMOKE_CLOUD_END timer ticks (11 s)
+        // and drives FOG_FLAG, which the room's script reads (AITD1 LIFE 427:
+        // 0 = start a cloud, 2 = the player coughs and loses health). See AffSpecialObjet.
+        currentActorPtr->END_FRAME = 50;
+        startChrono(&currentActorPtr->CHRONO);
+        CVars[getCVarsIdx(FOG_FLAG)] = 1;
         break;
     }
     default:
