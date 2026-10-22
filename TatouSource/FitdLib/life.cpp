@@ -481,7 +481,7 @@ int InitSpecialObjet(int mode, int X, int Y, int Z, int stage, int room, int alp
         {
             *(s16*)flowPtr = randRange(-SMOKE_SPREAD, SMOKE_SPREAD); //X target
             flowPtr += 2;
-            *(s16*)flowPtr = 0; //Y
+            *(s16*)flowPtr = -(SMOKE_RISE_MAX * j / (SMOKE_NUM_PUFFS - 1)); //Y: extra height (Y is down)
             flowPtr += 2;
             *(s16*)flowPtr = randRange(-SMOKE_SPREAD, SMOKE_SPREAD); //Z target
             flowPtr += 2;

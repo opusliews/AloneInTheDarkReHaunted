@@ -295,6 +295,12 @@ extern std::vector<s16> CVars;
 #define SMOKE_TURN_TICKS 3
 #define SMOKE_COLOR      0xB0
 #define SMOKE_MATERIAL   2      // transparent
+// Not in the original (a fuller cloud): puff i sits up to SMOKE_RISE_MAX higher,
+// spread evenly from the original height (puff 0) up (the last puff); about a
+// third of the screen on the Smoking Room cameras. Some puffs also turn faster and
+// some are a darker grey (main.cpp kSmokeSpin / kSmokeShade). 0 here and all-4 /
+// all-0 tables give the original cloud.
+#define SMOKE_RISE_MAX   1200
 
 extern char* PtrPrioritySample;
 

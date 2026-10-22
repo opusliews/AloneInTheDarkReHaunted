@@ -3570,8 +3570,15 @@ extern void clearCurrentAtlas();
 
 // The smoke cloud as the original engine draws it (INDARK.EXE 17ae:085f): each puff
 // sits at its target offset scaled by age / SMOKE_MOVE (no clamp, as the original),
-// SMOKE_HEIGHT above the spawn point; the cloud is turned by the actor's angles plus
-// its own spin, and every puff is a transparent sphere of radius age (then shrinking).
+// SMOKE_HEIGHT above the spawn point (plus its extra height, not in the original);
+// the cloud is turned by the actor's angles plus its own spin, and every puff is a
+// transparent sphere of radius age (then shrinking).
+// Not in the original: per puff (by index), its spin in quarters of the original
+// speed and how many palette steps darker than SMOKE_COLOR it is (bank 11 is a grey
+// ramp, darker towards 0xBF).
+static const int kSmokeSpin[] = { 4, 5, 6 };
+static const int kSmokeShade[] = { 0, 0, 2, 4 };
+
 static void drawSmokeCloud(tObject* actorPtr, const s16* targets, int numPuffs, int age)
 {
     const int radius = age < SMOKE_CLOUD_FADE ? age : 5 * (SMOKE_CLOUD_END - age);
@@ -3579,12 +3586,10 @@ static void drawSmokeCloud(tObject* actorPtr, const s16* targets, int numPuffs, 
         return;
 
     // same rotation as pointRotate (Z, then Y, then X), without its global state
-    const int beta = actorPtr->beta + age * 4 / SMOKE_TURN_TICKS;
     const int cosX = cosTable[actorPtr->alpha & 0x3FF], sinX = cosTable[(actorPtr->alpha + 0x100) & 0x3FF];
-    const int cosY = cosTable[beta & 0x3FF], sinY = cosTable[(beta + 0x100) & 0x3FF];
     const int cosZ = cosTable[actorPtr->gamma & 0x3FF], sinZ = cosTable[(actorPtr->gamma + 0x100) & 0x3FF];
 
-    struct Puff { float x, y, depth, size; };
+    struct Puff { float x, y, depth, size; u8 color; };
     Puff puffs[SMOKE_NUM_PUFFS];
     int count = 0;
 
@@ -3595,8 +3600,12 @@ static void drawSmokeCloud(tObject* actorPtr, const s16* targets, int numPuffs, 
 
     for (int i = 0; i < numPuffs && count < SMOKE_NUM_PUFFS; i++)
     {
+        const int spin = kSmokeSpin[i % (sizeof(kSmokeSpin) / sizeof(kSmokeSpin[0]))];
+        const int beta = actorPtr->beta + age * spin / SMOKE_TURN_TICKS;
+        const int cosY = cosTable[beta & 0x3FF], sinY = cosTable[(beta + 0x100) & 0x3FF];
+
         int x = targets[i * 3 + 0] * age / SMOKE_MOVE;
-        int y = SMOKE_HEIGHT;
+        int y = SMOKE_HEIGHT + targets[i * 3 + 1];
         int z = targets[i * 3 + 2] * age / SMOKE_MOVE;
         int t;
         t = x; x = (((t * sinZ) - (y * cosZ)) >> 16) << 1; y = (((t * cosZ) + (y * sinZ)) >> 16) << 1;
@@ -3618,6 +3627,7 @@ static void drawSmokeCloud(tObject* actorPtr, const s16* targets, int numPuffs, 
         p.y = ((wy * cameraFovY) / depth) + cameraCenterY;
         p.depth = depth;
         p.size = ((float)radius * (float)cameraFovX) / depth;
+        p.color = (u8)(SMOKE_COLOR + kSmokeShade[i % (sizeof(kSmokeShade) / sizeof(kSmokeShade[0]))]);
 
         if (p.x < BBox3D1) BBox3D1 = (int)p.x;
         if (p.x > BBox3D3) BBox3D3 = (int)p.x;
@@ -3628,7 +3638,7 @@ static void drawSmokeCloud(tObject* actorPtr, const s16* targets, int numPuffs, 
     // back to front, so the transparent puffs blend over each other
     std::sort(puffs, puffs + count, [](const Puff& a, const Puff& b) { return a.depth > b.depth; });
     for (int i = 0; i < count; i++)
-        osystem_drawSphere(puffs[i].x, puffs[i].y, puffs[i].depth, SMOKE_COLOR, SMOKE_MATERIAL, puffs[i].size);
+        osystem_drawSphere(puffs[i].x, puffs[i].y, puffs[i].depth, puffs[i].color, SMOKE_MATERIAL, puffs[i].size);
 
     osystem_flushPendingPrimitives();
 }
