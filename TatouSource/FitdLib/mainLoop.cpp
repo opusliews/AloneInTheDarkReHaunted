@@ -12,6 +12,7 @@
 #include "anim2d.h"
 #include "fontTTF.h"
 #include "hdBackgroundRenderer.h"
+#include "configRemaster.h"
 #include "jobSystem.h"
 #include "lanternLighting.h"
 #include "menuMouse.h"
@@ -684,6 +685,18 @@ void PlayWorld(int allowSystemMenu, int deltaTime)
             }
 
             NumCamera = memocam;
+        }
+        // HD backgrounds switched on or off (F1 dialog or the detail option): reload
+        // the current camera so its background follows the setting at once.
+        {
+            static int s_lastHDBackgrounds = -1;
+            const int hdBackgrounds = g_remasterConfig.graphics.enableHDBackgrounds ? 1 : 0;
+            if (s_lastHDBackgrounds != -1 && s_lastHDBackgrounds != hdBackgrounds && !FlagInitView)
+            {
+                NewNumCamera = NumCamera;
+                FlagInitView = 1;
+            }
+            s_lastHDBackgrounds = hdBackgrounds;
         }
         if (FlagInitView
 #ifdef FITD_DEBUGGER

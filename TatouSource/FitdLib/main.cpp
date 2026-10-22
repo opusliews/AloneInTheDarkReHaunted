@@ -1700,7 +1700,8 @@ void loadCamera(int cameraIdx)
 
     // Check preload cache first (only for standard camera loads, not special ITD_RESS overrides)
     // Note: Only static backgrounds are cached; animated ones are always loaded fresh
-    if (useSpecial == -1 && areHDBackgroundsPreloaded())
+    // (not when HD backgrounds were switched off after the floor was preloaded)
+    if (useSpecial == -1 && isHDBackgroundEnabled() && areHDBackgroundsPreloaded())
     {
         hdBg = getPreloadedHDBackground(cameraIdx, bgSuffix);
         isFromCache = (hdBg != nullptr);
