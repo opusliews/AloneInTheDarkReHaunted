@@ -3606,7 +3606,8 @@ static void drawSmokeCloud(tObject* actorPtr, const s16* targets, int numPuffs, 
         const int cosY = cosTable[beta & 0x3FF], sinY = cosTable[(beta + 0x100) & 0x3FF];
 
         int x = targets[i * 3 + 0] * age / SMOKE_MOVE;
-        int y = SMOKE_HEIGHT + targets[i * 3 + 1];
+        // the extra height grows from 0 like X/Z, but stops at SMOKE_MOVE (its full value)
+        int y = SMOKE_HEIGHT + targets[i * 3 + 1] * (age < SMOKE_MOVE ? age : SMOKE_MOVE) / SMOKE_MOVE;
         int z = targets[i * 3 + 2] * age / SMOKE_MOVE;
         int t;
         t = x; x = (((t * sinZ) - (y * cosZ)) >> 16) << 1; y = (((t * cosZ) + (y * sinZ)) >> 16) << 1;
