@@ -3577,9 +3577,33 @@ void AffSpecialObjet(int actorIdx) // draw flow
 
     int mode = actorPtr->ANIM;
 
+    // Smoke (mode 4) follows the original engine's timing instead of a frame count
+    // (INDARK.EXE 17ae:054b): FOG_FLAG 1 -> 2 at SMOKE_CLOUD_HIT ticks (the room's
+    // script then makes the player cough and lose health), 2 -> 3 on the next frame,
+    // and at SMOKE_CLOUD_END the cloud ends and FOG_FLAG returns to 0 (a new cloud
+    // may start). Like the original, this is checked while the cloud is drawn.
+    float smokeSize = 1.f;
+    if (mode == 4)
+    {
+        const int age = evalChrono(&actorPtr->CHRONO);
+        s16& fogFlag = CVars[getCVarsIdx(FOG_FLAG)];
+        if (fogFlag == 2)
+            fogFlag = 3;
+        if (age >= SMOKE_CLOUD_HIT && fogFlag == 1)
+            fogFlag = 2;
+        if (age >= SMOKE_CLOUD_END)
+        {
+            DeleteObjet(actorIdx);      // clears FOG_FLAG
+            return;
+        }
+        // the cloud spreads until SMOKE_CLOUD_FADE, then shrinks away
+        smokeSize = age < SMOKE_CLOUD_FADE ? (float)age / SMOKE_CLOUD_FADE
+                                           : (float)(SMOKE_CLOUD_END - age) / (SMOKE_CLOUD_END - SMOKE_CLOUD_FADE);
+    }
+
     // increment frame counter and check lifetime
     actorPtr->numOfFrames++;
-    if (actorPtr->END_FRAME > 0 && actorPtr->numOfFrames >= actorPtr->END_FRAME)
+    if (mode != 4 && actorPtr->END_FRAME > 0 && actorPtr->numOfFrames >= actorPtr->END_FRAME)
     {
         DeleteObjet(actorIdx);
         return;
@@ -3678,7 +3702,7 @@ void AffSpecialObjet(int actorIdx) // draw flow
     BBox3D3 = -32000;
     BBox3D4 = -32000;
 
-    float lifeRatio = 1.0f - (float)actorPtr->numOfFrames / (float)actorPtr->END_FRAME;
+    float lifeRatio = (mode == 4) ? smokeSize : 1.0f - (float)actorPtr->numOfFrames / (float)actorPtr->END_FRAME;
     float baseSize = (mode == 1) ? 55.f : (mode == 0) ? 65.f : 20.f;
     float pointSize = baseSize * lifeRatio;
     if (pointSize < 1.f)
