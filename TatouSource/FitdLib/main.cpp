@@ -3568,6 +3568,71 @@ void drawBgOverlay(tObject* actorPtr)
 
 extern void clearCurrentAtlas();
 
+// The smoke cloud as the original engine draws it (INDARK.EXE 17ae:085f): each puff
+// sits at its target offset scaled by age / SMOKE_MOVE (no clamp, as the original),
+// SMOKE_HEIGHT above the spawn point; the cloud is turned by the actor's angles plus
+// its own spin, and every puff is a transparent sphere of radius age (then shrinking).
+static void drawSmokeCloud(tObject* actorPtr, const s16* targets, int numPuffs, int age)
+{
+    const int radius = age < SMOKE_CLOUD_FADE ? age : 5 * (SMOKE_CLOUD_END - age);
+    if (radius <= 0)
+        return;
+
+    // same rotation as pointRotate (Z, then Y, then X), without its global state
+    const int beta = actorPtr->beta + age * 4 / SMOKE_TURN_TICKS;
+    const int cosX = cosTable[actorPtr->alpha & 0x3FF], sinX = cosTable[(actorPtr->alpha + 0x100) & 0x3FF];
+    const int cosY = cosTable[beta & 0x3FF], sinY = cosTable[(beta + 0x100) & 0x3FF];
+    const int cosZ = cosTable[actorPtr->gamma & 0x3FF], sinZ = cosTable[(actorPtr->gamma + 0x100) & 0x3FF];
+
+    struct Puff { float x, y, depth, size; };
+    Puff puffs[SMOKE_NUM_PUFFS];
+    int count = 0;
+
+    BBox3D1 = 32000;
+    BBox3D2 = 32000;
+    BBox3D3 = -32000;
+    BBox3D4 = -32000;
+
+    for (int i = 0; i < numPuffs && count < SMOKE_NUM_PUFFS; i++)
+    {
+        int x = targets[i * 3 + 0] * age / SMOKE_MOVE;
+        int y = SMOKE_HEIGHT;
+        int z = targets[i * 3 + 2] * age / SMOKE_MOVE;
+        int t;
+        t = x; x = (((t * sinZ) - (y * cosZ)) >> 16) << 1; y = (((t * cosZ) + (y * sinZ)) >> 16) << 1;
+        t = x; x = (((t * sinY) - (z * cosY)) >> 16) << 1; z = (((t * cosY) + (z * sinY)) >> 16) << 1;
+        t = y; y = (((t * sinX) - (z * cosX)) >> 16) << 1; z = (((t * cosX) + (z * sinX)) >> 16) << 1;
+
+        float wx = (float)(actorPtr->worldX + x) - translateX;
+        float wy = (float)(actorPtr->worldY + y) - translateY;
+        float wz = (float)(actorPtr->worldZ + z) - translateZ;
+
+        transformPoint(&wx, &wy, &wz);
+
+        float depth = wz + cameraPerspective;
+        if (depth <= 50)
+            continue;
+
+        Puff& p = puffs[count++];
+        p.x = ((wx * cameraFovX) / depth) + cameraCenterX;
+        p.y = ((wy * cameraFovY) / depth) + cameraCenterY;
+        p.depth = depth;
+        p.size = ((float)radius * (float)cameraFovX) / depth;
+
+        if (p.x < BBox3D1) BBox3D1 = (int)p.x;
+        if (p.x > BBox3D3) BBox3D3 = (int)p.x;
+        if (p.y < BBox3D2) BBox3D2 = (int)p.y;
+        if (p.y > BBox3D4) BBox3D4 = (int)p.y;
+    }
+
+    // back to front, so the transparent puffs blend over each other
+    std::sort(puffs, puffs + count, [](const Puff& a, const Puff& b) { return a.depth > b.depth; });
+    for (int i = 0; i < count; i++)
+        osystem_drawSphere(puffs[i].x, puffs[i].y, puffs[i].depth, SMOKE_COLOR, SMOKE_MATERIAL, puffs[i].size);
+
+    osystem_flushPendingPrimitives();
+}
+
 void AffSpecialObjet(int actorIdx) // draw flow
 {
     // Clear atlas so particles use palette-based colors, not a stale model atlas
@@ -3582,23 +3647,20 @@ void AffSpecialObjet(int actorIdx) // draw flow
     // script then makes the player cough and lose health), 2 -> 3 on the next frame,
     // and at SMOKE_CLOUD_END the cloud ends and FOG_FLAG returns to 0 (a new cloud
     // may start). Like the original, this is checked while the cloud is drawn.
-    float smokeSize = 1.f;
+    int smokeAge = 0;
     if (mode == 4)
     {
-        const int age = evalChrono(&actorPtr->CHRONO);
+        smokeAge = evalChrono(&actorPtr->CHRONO);
         s16& fogFlag = CVars[getCVarsIdx(FOG_FLAG)];
         if (fogFlag == 2)
             fogFlag = 3;
-        if (age >= SMOKE_CLOUD_HIT && fogFlag == 1)
+        if (smokeAge >= SMOKE_CLOUD_HIT && fogFlag == 1)
             fogFlag = 2;
-        if (age >= SMOKE_CLOUD_END)
+        if (smokeAge >= SMOKE_CLOUD_END)
         {
             DeleteObjet(actorIdx);      // clears FOG_FLAG
             return;
         }
-        // the cloud spreads until SMOKE_CLOUD_FADE, then shrinks away
-        smokeSize = age < SMOKE_CLOUD_FADE ? (float)age / SMOKE_CLOUD_FADE
-                                           : (float)(SMOKE_CLOUD_END - age) / (SMOKE_CLOUD_END - SMOKE_CLOUD_FADE);
     }
 
     // increment frame counter and check lifetime
@@ -3660,6 +3722,12 @@ void AffSpecialObjet(int actorIdx) // draw flow
     s16 numPoints = *(s16*)(data + 2);
     s16* positions = (s16*)(data + 4);
 
+    if (mode == 4)
+    {
+        drawSmokeCloud(actorPtr, positions, numPoints, smokeAge);
+        return;
+    }
+
     if (mode == 0) color = 0x5A; // evaporate: purple
     if (mode == 1) color = 0x28; // blood: bright red
 
@@ -3685,11 +3753,6 @@ void AffSpecialObjet(int actorIdx) // draw flow
             positions[i * 3 + 2] += spreadZ + (rand() % 5) - 2;
             break;
         }
-        case 4: // smoke: particles drift upward slowly
-            positions[i * 3 + 1] -= 2; // rise slowly
-            positions[i * 3 + 0] += (rand() % 5) - 2; // more horizontal drift
-            positions[i * 3 + 2] += (rand() % 5) - 2;
-            break;
         }
     }
 
@@ -3702,7 +3765,7 @@ void AffSpecialObjet(int actorIdx) // draw flow
     BBox3D3 = -32000;
     BBox3D4 = -32000;
 
-    float lifeRatio = (mode == 4) ? smokeSize : 1.0f - (float)actorPtr->numOfFrames / (float)actorPtr->END_FRAME;
+    float lifeRatio = 1.0f - (float)actorPtr->numOfFrames / (float)actorPtr->END_FRAME;
     float baseSize = (mode == 1) ? 55.f : (mode == 0) ? 65.f : 20.f;
     float pointSize = baseSize * lifeRatio;
     if (pointSize < 1.f)
