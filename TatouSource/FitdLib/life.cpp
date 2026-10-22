@@ -449,8 +449,10 @@ int InitSpecialObjet(int mode, int X, int Y, int Z, int stage, int room, int alp
         char* flowPtr;
         int j;
 
-        // 4 + 25 * 6 + 25 * 4 = 254 bytes are written below (was 244: 10-byte heap overrun)
-        currentActorPtr->frame = HQ_Malloc(HQ_Memory, 4 + 25 * (6 + 4));
+        // As the original engine (INDARK.EXE 17ae:0430): SMOKE_NUM_PUFFS puffs, each
+        // given a random target offset in X/Z that it moves to as the cloud ages
+        // (see AffSpecialObjet). Layout: color, count, then x/y/z per puff.
+        currentActorPtr->frame = HQ_Malloc(HQ_Memory, 4 + SMOKE_NUM_PUFFS * 6);
 
         flowPtr = HQ_PtrMalloc(HQ_Memory, currentActorPtr->frame);
 
@@ -462,35 +464,27 @@ int InitSpecialObjet(int mode, int X, int Y, int Z, int stage, int room, int alp
 
         currentActorPtr->ANIM = mode;
 
-        *(s16*)flowPtr = 192; // gray color for smoke
+        *(s16*)flowPtr = SMOKE_COLOR;
         flowPtr += 2;
-        *(s16*)flowPtr = 25; // num of points
+        *(s16*)flowPtr = SMOKE_NUM_PUFFS; // num of points
         flowPtr += 2;
 
-        for (j = 0; j < 25; j++)
+        for (j = 0; j < SMOKE_NUM_PUFFS; j++)
         {
-            *(s16*)flowPtr = randRange(-10, 10); //X
+            *(s16*)flowPtr = randRange(-SMOKE_SPREAD, SMOKE_SPREAD); //X target
             flowPtr += 2;
-            *(s16*)flowPtr = randRange(-10, 10); //Y
+            *(s16*)flowPtr = 0; //Y
             flowPtr += 2;
-            *(s16*)flowPtr = randRange(-10, 10); //Z
+            *(s16*)flowPtr = randRange(-SMOKE_SPREAD, SMOKE_SPREAD); //Z target
             flowPtr += 2;
         }
 
-        for (j = 0; j < 25; j++)
-        {
-            *(s16*)flowPtr = randRange(50, 150); // velocity
-            flowPtr += 2;
-            *(s16*)flowPtr = randRange(40, 80); // lifetime
-            flowPtr += 2;
-        }
-
-        currentActorPtr->zv.ZVX1 = X - 12;
-        currentActorPtr->zv.ZVX2 = X + 12;
-        currentActorPtr->zv.ZVY1 = Y - 12;
-        currentActorPtr->zv.ZVY2 = Y + 12;
-        currentActorPtr->zv.ZVZ1 = Z - 12;
-        currentActorPtr->zv.ZVZ2 = Z + 12;
+        currentActorPtr->zv.ZVX1 = X - 10;
+        currentActorPtr->zv.ZVX2 = X + 10;
+        currentActorPtr->zv.ZVY1 = Y + SMOKE_HEIGHT;
+        currentActorPtr->zv.ZVY2 = Y + SMOKE_HEIGHT;
+        currentActorPtr->zv.ZVZ1 = Z - 10;
+        currentActorPtr->zv.ZVZ2 = Z + 10;
 
         // As the original engine: the cloud lives SMOKE_CLOUD_END timer ticks (11 s)
         // and drives FOG_FLAG, which the room's script reads (AITD1 LIFE 427:
