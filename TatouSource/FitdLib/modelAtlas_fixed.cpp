@@ -173,6 +173,12 @@ struct ProjectionParams
     int atlasW, atlasH;
 };
 
+// Flat models get huge projection atlases: the arrows' found bodies 161/163/164
+// have X range 0, so height/width is ~60 and the atlas came out 1024x262144
+// (1 GB; body 162: 1024x32768). Reading one froze the game for seconds on every
+// first draw in a session. Atlases are capped at this size in both directions.
+static const int kMaxAtlasSize = 4096;
+
 static ProjectionParams computeProjectionParams(const std::vector<point3dStruct>& verts)
 {
     ProjectionParams p = {};
@@ -202,7 +208,7 @@ static ProjectionParams computeProjectionParams(const std::vector<point3dStruct>
     int halfW = 512;
     int baseH = (int)ceilf((float)halfW * (p.rangeY / p.rangeX));
     p.atlasW = nextPow2((std::max)(halfW * 2, 128));
-    p.atlasH = nextPow2((std::max)(baseH, 64));
+    p.atlasH = (std::min)(nextPow2((std::max)(baseH, 64)), kMaxAtlasSize);
     return p;
 }
 
@@ -405,19 +411,85 @@ static void ensureAtlasDir()
 
 // Generic helper to load atlas PNG data from atlases.hda archive or fall back to filesystem
 // Attempts to load from archive using just the filename as entry name, with fallback to direct file loading
+static bool isAtlasOversized(int w, int h)
+{
+    return w > kMaxAtlasSize || h > kMaxAtlasSize;
+}
+
+// Box-filters an oversized atlas down to kMaxAtlasSize (premultiplied, so
+// transparent texels don't darken the edges). UVs are normalised, so they still fit.
+static unsigned char* shrinkAtlasPixels(unsigned char* src, int& w, int& h)
+{
+    const int newW = (std::min)(w, kMaxAtlasSize);
+    const int newH = (std::min)(h, kMaxAtlasSize);
+    unsigned char* dst = (unsigned char*)malloc((size_t)newW * newH * 4);
+    if (!dst)
+        return src;
+    for (int y = 0; y < newH; y++)
+    {
+        const int y0 = (int)((long long)y * h / newH), y1 = (std::max)(y0 + 1, (int)((long long)(y + 1) * h / newH));
+        for (int x = 0; x < newW; x++)
+        {
+            const int x0 = (int)((long long)x * w / newW), x1 = (std::max)(x0 + 1, (int)((long long)(x + 1) * w / newW));
+            double r = 0, g = 0, b = 0, a = 0;
+            for (int sy = y0; sy < y1; sy++)
+                for (int sx = x0; sx < x1; sx++)
+                {
+                    const unsigned char* p = src + ((size_t)sy * w + sx) * 4;
+                    r += p[0] * p[3]; g += p[1] * p[3]; b += p[2] * p[3]; a += p[3];
+                }
+            unsigned char* q = dst + ((size_t)y * newW + x) * 4;
+            const int n = (x1 - x0) * (y1 - y0);
+            q[0] = a > 0 ? (unsigned char)(r / a + 0.5) : 0;
+            q[1] = a > 0 ? (unsigned char)(g / a + 0.5) : 0;
+            q[2] = a > 0 ? (unsigned char)(b / a + 0.5) : 0;
+            q[3] = (unsigned char)(a / n + 0.5);
+        }
+    }
+    printf(RNDR_TAG "Atlas shrunk from %dx%d to %dx%d\n", w, h, newW, newH);
+    stbi_image_free(src);
+    w = newW;
+    h = newH;
+    return dst;
+}
+
 // Returns decompressed RGBA8 pixel data (caller must free with stbi_image_free)
 // Sets w, h, channels on success; returns nullptr on failure
-static unsigned char* loadAtlasDataFromArchiveOrFile(const std::string& filePath, int& w, int& h, int& channels)
+// afterDump: the loose file was just generated. It is then read first and never
+// skipped (an oversized one is shrunk instead), so a generator that still makes
+// one can't be asked to dump it again on every draw.
+static unsigned char* loadAtlasDataFromArchiveOrFile(const std::string& filePath, int& w, int& h, int& channels,
+    bool afterDump = false)
 {
     // Extract just the filename from the full path for archive entry lookup
     // (Archive entries use simple names like "body_hqrname_001.png", not full paths)
     size_t lastSlash = filePath.find_last_of("/\\");
     std::string fileName = (lastSlash != std::string::npos) ? filePath.substr(lastSlash + 1) : filePath;
 
+    if (afterDump)
+    {
+        if (unsigned char* data = stbi_load(filePath.c_str(), &w, &h, &channels, 4))
+        {
+            return isAtlasOversized(w, h) ? shrinkAtlasPixels(data, w, h) : data;
+        }
+    }
+
     // First, try to load from atlases.hda archive
     if (HDArchive::open("atlases.hda"))
     {
         const HDArchiveEntry* entry = HDArchive::findEntry(fileName.c_str());
+        // Size check from the PNG header alone (the IHDR chunk ends at byte 33):
+        // an oversized entry is skipped without reading the image, and the loose
+        // file (generated at a capped size) is used instead
+        unsigned char header[64];
+        const size_t headerLen = entry && !afterDump ? HDArchive::readEntryPrefix(entry, header, sizeof(header)) : 0;
+        int infoW = 0, infoH = 0, infoComp = 0;
+        if (headerLen > 0 && stbi_info_from_memory(header, (int)headerLen, &infoW, &infoH, &infoComp) &&
+            isAtlasOversized(infoW, infoH))
+        {
+            printf(RNDR_TAG "Atlas in atlases.hda skipped, too large: %s (%dx%d)\n", fileName.c_str(), infoW, infoH);
+            entry = nullptr;
+        }
         if (entry)
         {
             size_t dataSize = 0;
@@ -437,7 +509,7 @@ static unsigned char* loadAtlasDataFromArchiveOrFile(const std::string& filePath
                     // Note: uncomment for debug logging
                     // printf(RNDR_INFO "Loaded atlas from archive: %s (%dx%d)" CON_RESET "\n",
                     //     fileName.c_str(), w, h);
-                    return pixels;
+                    return isAtlasOversized(w, h) ? shrinkAtlasPixels(pixels, w, h) : pixels;
                 }
             }
         }
@@ -447,8 +519,17 @@ static unsigned char* loadAtlasDataFromArchiveOrFile(const std::string& filePath
         }
     }
 
-    // Fallback: load from individual file on filesystem
+    // Fallback: load from individual file on filesystem. An oversized one is not
+    // decoded: returning nothing makes the caller generate it again at a capped size.
+    int infoW = 0, infoH = 0, infoComp = 0;
+    if (!afterDump && stbi_info(filePath.c_str(), &infoW, &infoH, &infoComp) && isAtlasOversized(infoW, infoH))
+    {
+        printf(RNDR_TAG "Atlas file too large, regenerating: %s (%dx%d)\n", filePath.c_str(), infoW, infoH);
+        return nullptr;
+    }
     unsigned char* data = stbi_load(filePath.c_str(), &w, &h, &channels, 4);
+    if (data && isAtlasOversized(w, h))
+        data = shrinkAtlasPixels(data, w, h);
 
     // Note: uncomment for debug logging if loaded from file
     // if (data)
@@ -682,7 +763,7 @@ ModelAtlasData* loadModelAtlas(int bodyNum, sBody* pBody, const std::string& hqr
     if (!data)
     {
         dumpModelAtlas(bodyNum, pBody, hqrName);
-        data = loadAtlasDataFromArchiveOrFile(path, w, h, channels);
+        data = loadAtlasDataFromArchiveOrFile(path, w, h, channels, true);
         if (!data)
             return nullptr;
     }
@@ -746,7 +827,7 @@ ModelAtlasData* loadModelAtlas(int bodyNum, sBody* pBody, const std::string& hqr
     {
         // Auto-dump sphere atlas if it doesn't exist
         dumpSphereAtlas(bodyNum, pBody, hqrName);
-        sphereData = loadAtlasDataFromArchiveOrFile(spherePath, w, h, channels);
+        sphereData = loadAtlasDataFromArchiveOrFile(spherePath, w, h, channels, true);
     }
 
     if (sphereData)
@@ -772,7 +853,7 @@ ModelAtlasData* loadModelAtlas(int bodyNum, sBody* pBody, const std::string& hqr
     {
         // Auto-dump flat poly atlas if it doesn't exist
         dumpFlatPolyAtlas(bodyNum, pBody, hqrName);
-        flatData = loadAtlasDataFromArchiveOrFile(flatPath, w, h, channels);
+        flatData = loadAtlasDataFromArchiveOrFile(flatPath, w, h, channels, true);
     }
 
     if (flatData)
@@ -829,7 +910,7 @@ ModelAtlasData* loadModelAtlas(int bodyNum, sBody* pBody, const std::string& hqr
     {
         // Auto-dump ramp poly atlas if it doesn't exist
         dumpRampAtlas(bodyNum, pBody, hqrName);
-        rampData = loadAtlasDataFromArchiveOrFile(rampPath, w, h, channels);
+        rampData = loadAtlasDataFromArchiveOrFile(rampPath, w, h, channels, true);
     }
 
     if (rampData)
@@ -888,7 +969,7 @@ ModelAtlasData* loadModelAtlas(int bodyNum, sBody* pBody, const std::string& hqr
     {
         // Auto-dump other poly atlas if it doesn't exist
         dumpOtherAtlas(bodyNum, pBody, hqrName);
-        otherData = loadAtlasDataFromArchiveOrFile(otherPath, w, h, channels);
+        otherData = loadAtlasDataFromArchiveOrFile(otherPath, w, h, channels, true);
     }
 
     if (otherData)
@@ -1411,7 +1492,7 @@ static TatouProjectionParams computeTatouProjectionParams(const std::vector<poin
     float maxHorizRange = (std::max)(p.rangeX, p.rangeZ);
     int baseH = (int)ceilf((float)halfW * (p.rangeY / maxHorizRange));
     p.atlasW = nextPow2((std::max)(halfW * 2, 128));
-    p.atlasH = nextPow2((std::max)(baseH * 2, 128));  // Double height for 4 quadrants
+    p.atlasH = (std::min)(nextPow2((std::max)(baseH * 2, 128)), kMaxAtlasSize);  // Double height for 4 quadrants
     return p;
 }
 
@@ -1559,7 +1640,7 @@ ModelAtlasData* loadTatouAtlas(int bodyNum, sBody* pBody, const std::string& hqr
     if (!data)
     {
         dumpTatouAtlas(bodyNum, pBody, hqrName);
-        data = loadAtlasDataFromArchiveOrFile(path, w, h, channels);
+        data = loadAtlasDataFromArchiveOrFile(path, w, h, channels, true);
         if (!data)
             return nullptr;
     }

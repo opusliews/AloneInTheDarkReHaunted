@@ -307,4 +307,46 @@ unsigned char* readEntryAlloc(const HDArchiveEntry* entry, size_t* outSize)
     return buf;
 }
 
+size_t readEntryPrefix(const HDArchiveEntry* entry, void* buf, size_t len)
+{
+    if (!s_open || !entry || !buf || !s_file)
+        return 0;
+    len = (std::min)(len, (size_t)entry->uncompressedSize);
+
+#ifdef _WIN32
+    if (_fseeki64(s_file, (long long)entry->offset, SEEK_SET) != 0)
+        return 0;
+#else
+    if (fseeko(s_file, (off_t)entry->offset, SEEK_SET) != 0)
+        return 0;
+#endif
+
+    if (!(entry->flags & HDARCHIVE_FLAG_COMPRESSED))
+        return fread(buf, 1, len, s_file);
+
+    // Inflate in small steps until `len` bytes are out
+    z_stream zs = {};
+    if (inflateInit(&zs) != Z_OK)
+        return 0;
+    unsigned char in[4096];
+    uint64_t left = entry->size;
+    zs.next_out = (Bytef*)buf;
+    zs.avail_out = (uInt)len;
+    int zrc = Z_OK;
+    while (zs.avail_out > 0 && zrc == Z_OK && left > 0)
+    {
+        const size_t chunk = (size_t)(std::min)(left, (uint64_t)sizeof(in));
+        if (fread(in, 1, chunk, s_file) != chunk)
+            break;
+        left -= chunk;
+        zs.next_in = in;
+        zs.avail_in = (uInt)chunk;
+        while (zs.avail_in > 0 && zs.avail_out > 0 && zrc == Z_OK)
+            zrc = inflate(&zs, Z_NO_FLUSH);
+    }
+    const size_t got = len - zs.avail_out;
+    inflateEnd(&zs);
+    return got;
+}
+
 } // namespace HDArchive
