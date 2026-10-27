@@ -1104,22 +1104,17 @@ void osystem_updateSaveSlotPreviewTexture(unsigned char* rgbaData, int width, in
         return;
     }
 
-    if (width != g_saveSlotPreviewW || height != g_saveSlotPreviewH)
-    {
-        if (bgfx::isValid(g_saveSlotPreviewTex))
-            bgfx::destroy(g_saveSlotPreviewTex);
+    // Recreate on every slot change: a texture created with initial data is
+    // immutable in bgfx, so updateTexture2D on it was silently ignored and the
+    // first slot's picture stayed (all save PNGs share one size).
+    if (bgfx::isValid(g_saveSlotPreviewTex))
+        bgfx::destroy(g_saveSlotPreviewTex);
 
-        g_saveSlotPreviewTex = bgfx::createTexture2D(width, height, false, 1,
-            bgfx::TextureFormat::RGBA8, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP,
-            bgfx::copy(rgbaData, width * height * 4));
-        g_saveSlotPreviewW = width;
-        g_saveSlotPreviewH = height;
-    }
-    else
-    {
-        bgfx::updateTexture2D(g_saveSlotPreviewTex, 0, 0, 0, 0, width, height,
-            bgfx::copy(rgbaData, width * height * 4));
-    }
+    g_saveSlotPreviewTex = bgfx::createTexture2D(width, height, false, 1,
+        bgfx::TextureFormat::RGBA8, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP,
+        bgfx::copy(rgbaData, width * height * 4));
+    g_saveSlotPreviewW = width;
+    g_saveSlotPreviewH = height;
 }
 
 void osystem_drawSaveSlotPreviewHD(float x1, float y1, float x2, float y2)
