@@ -744,13 +744,11 @@ inline void life_RepSample(int sampleNum) { playSoundLooping(sampleNum); }
 inline void life_StopSample() { osystem_stopSample(); }
 inline void life_SampleThen(int sample, int nextSamp)
 {
-    playSound(sample);
-    nextSample = nextSamp;
+    playSoundThen(sample, nextSamp);
 }
 inline void life_SampleThenRepeat(int sample, int nextSamp)
 {
-    playSound(sample);
-    nextSample = nextSamp | 0x4000;
+    playSoundThen(sample, nextSamp | 0x4000);
 }
 
 // Music helpers

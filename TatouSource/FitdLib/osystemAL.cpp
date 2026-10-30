@@ -577,6 +577,7 @@ struct ActiveSfx
     bool looping;
 };
 static std::vector<ActiveSfx> g_activeSfx;
+static unsigned int s_lastSampleVoice = 0;   // osystem_lastSampleVoice()
 
 // Remove finished sounds from the active list and free their AudioSource memory.
 static void reapFinishedSfx()
@@ -662,6 +663,7 @@ void osystem_playSample(char* samplePtr,int size)
     {
         ActiveSfx sfx = { h, pAudioSource, false };
         g_activeSfx.push_back(sfx);
+        s_lastSampleVoice = h;
 
         // Apply random frequency modulation if set (rndFreqModulation is 0-100)
         extern s16 rndFreqModulation;
@@ -709,6 +711,16 @@ void osystem_stopLoopingSamples()
             i++;
         }
     }
+}
+
+unsigned int osystem_lastSampleVoice()
+{
+    return s_lastSampleVoice;
+}
+
+bool osystem_isSampleVoicePlaying(unsigned int voice)
+{
+    return gSoloud && voice != 0 && gSoloud->isValidVoiceHandle(voice);
 }
 
 bool osystem_isSamplePlaying()

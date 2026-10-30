@@ -2174,13 +2174,14 @@ void processLife(int lifeNum, bool callFoundLife)
 
                 break;
             }
-            case LM_SAMPLE_THEN: //todo
+            case LM_SAMPLE_THEN: // the second sample is played by processNextSample (tatou.cpp)
             {
                 appendFormated("LM_SAMPLE_THEN ");
                 if (g_gameId == AITD1)
                 {
-                    playSound(evalVar());
-                    nextSample = evalVar();
+                    const int first = evalVar();
+                    const int then = evalVar();
+                    playSoundThen(first, then);
                 }
                 else
                 {
@@ -2200,17 +2201,18 @@ void processLife(int lifeNum, bool callFoundLife)
                         currentLifePtr += 2;
                     }
 
-                    playSound(newSample);
+                    playSoundThen(newSample, nextSample);
                 }
                 printf(LIFE_TAG "LM_SAMPLE_THEN\n");
                 // setSampleFreq(0);
                 break;
             }
-            case LM_SAMPLE_THEN_REPEAT: //todo
+            case LM_SAMPLE_THEN_REPEAT: // the second sample (repeating) is played by processNextSample
             {
                 appendFormated("LM_SAMPLE_THEN_REPEAT ");
-                playSound(evalVar());
-                nextSample = evalVar() | 0x4000;
+                const int first = evalVar();
+                const int then = evalVar();
+                playSoundThen(first, then | 0x4000);
                 // setSampleFreq(0);
                 //printf("LM_SAMPLE_THEN_REPEAT\n");
                 break;

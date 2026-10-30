@@ -495,6 +495,7 @@ void PlayWorld(int allowSystemMenu, int deltaTime)
         }
 
         stopLoopingSoundsOnRoomChange();
+        processNextSample();          // sound_then: the queued second sample (tatou.cpp)
 
         executeFoundLife(inHandTable[currentInventory]);
 

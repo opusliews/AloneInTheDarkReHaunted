@@ -77,6 +77,10 @@
 	void osystem_stopLoopingSamples();
 	void osystem_stopSample();
 	bool osystem_isSamplePlaying();
+	// The voice of the last one-shot sample started (0: none), and whether a voice still plays.
+	// sound_then waits for its own first sample, not for every overlapping sound (tatou.cpp).
+	unsigned int osystem_lastSampleVoice();
+	bool osystem_isSampleVoicePlaying(unsigned int voice);
 	void osystem_reloadAudioArchive();
 
 	void osystem_playVO(const char* voFileName);
