@@ -519,6 +519,7 @@ void PlayWorld(int allowSystemMenu, int deltaTime)
         }
 
         stopLoopingSoundsOnRoomChange();
+        processNextSample();          // sound_then: the queued second sample (tatou.cpp)
 
         // TatouScenario: F7/F10 requests and applying a pending scenario.
         scenarioMainLoopTick(allowSystemMenu != 0);
