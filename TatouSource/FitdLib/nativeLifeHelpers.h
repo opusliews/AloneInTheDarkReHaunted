@@ -808,7 +808,7 @@ inline void life_Water(int val)
 {
     extern s16 shakeVar1;
     shakeVar1 = val;
-    if (val > 0) setupShaking(val * 10);
+    if (val > 0 && g_gameId != AITD1) setupShaking(val * 10);   // AITD1: the cave water only
 }
 
 // LM_INVENTORY

@@ -266,6 +266,7 @@ void drawInventoryActions(int arg)
 
 void processInventory(void)
 {
+    WaterCutSuspend waterCutOff;    // item models are not cut at the cave waterline here
     int exitMenu = 0;
     int choice = 0;
     int firstTime = 1;
@@ -733,6 +734,7 @@ void DrawFoundWindow(int menuState, int objectName, int zoomFactor)
 
 void FoundObjet(int objIdx, int param)
 {
+    WaterCutSuspend waterCutOff;    // the found item's model is not cut at the cave waterline
     tWorldObject* objPtr;
 
     if (objIdx < 0)

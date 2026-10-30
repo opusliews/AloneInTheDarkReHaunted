@@ -141,6 +141,27 @@ int numOfBones;
 
 std::array<point3dStruct, NUM_MAX_POINT_IN_POINT_BUFFER> pointBuffer;
 s16 cameraSpaceBuffer[NUM_MAX_POINT_IN_POINT_BUFFER*3];
+
+// AITD1 cave water (renderer.h): the vertices of the current model that are below the
+// height limit. A primitive using one is not drawn, as in the original.
+int g_waterCutSuspended = 0;
+static bool s_vertexCut[NUM_MAX_POINT_IN_POINT_BUFFER];
+
+// Room-space y (grows downward) below which model vertices are not drawn
+static int modelHeightLimit()
+{
+    return (g_gameId == AITD1 && shakeVar1 != 0 && g_waterCutSuspended == 0) ? -600 : 10000;
+}
+
+static bool primUsesCutVertex(const sPrimitive* ptr)
+{
+    for (u16 point : ptr->m_points)
+    {
+        if (point < NUM_MAX_POINT_IN_POINT_BUFFER && s_vertexCut[point])
+            return true;
+    }
+    return false;
+}
 s16 bonesBuffer[NUM_MAX_BONES];
 
 bool boneRotateX;
@@ -469,6 +490,7 @@ int AnimNuage(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
 
     {
         s16* outPtr = cameraSpaceBuffer;
+        const int heightLimit = modelHeightLimit();
         for(int i=0;i<numOfPoints;i++)
         {
             float X = pointBuffer[i].x;
@@ -480,12 +502,14 @@ int AnimNuage(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
             Y += renderY;
             Z += renderZ;
 
+            s_vertexCut[i] = Y > heightLimit;
+
 #if defined(AITD_UE4)
             *(outPtr++) = (s16)X;
             *(outPtr++) = (s16)Y;
             *(outPtr++) = (s16)Z;
 #else
-            if(Y>10000) // height clamp
+            if(Y>heightLimit) // height clamp; the waterline while the cave water is on
             {
                 *(outPtr++) = -10000;
                 *(outPtr++) = -10000;
@@ -605,6 +629,7 @@ int RotateNuage(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
     }
 
     outPtr = renderPointList;
+    const int heightLimit = modelHeightLimit();
 
     for(int i=0; i<pBody->m_vertices.size(); i++)
     {
@@ -646,12 +671,15 @@ int RotateNuage(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
         Y += renderY;
         Z += renderZ;
 
+        if (i < NUM_MAX_POINT_IN_POINT_BUFFER)
+            s_vertexCut[i] = Y > heightLimit;
+
 #if defined(AITD_UE4)
         *(outPtr++) = X;
         *(outPtr++) = Y;
         *(outPtr++) = Z;
 #else
-        if(Y>10000) // height clamp
+        if(Y>heightLimit) // height clamp; the waterline while the cave water is on
         {
             *(outPtr++) = -10000;
             *(outPtr++) = -10000;
@@ -711,6 +739,8 @@ void primFunctionDefault(int primType,char** ptr,char** out)
 
 void processPrim_Line(int primType, sPrimitive* ptr, char** out)
 {
+    if (primUsesCutVertex(ptr))
+        return;
     primEntryStruct* pCurrentPrimEntry = &primTable[positionInPrimEntry];
 
     ASSERT(positionInPrimEntry < NUM_MAX_PRIM_ENTRY);
@@ -758,6 +788,8 @@ void processPrim_Line(int primType, sPrimitive* ptr, char** out)
 
 void processPrim_Poly(int primType, sPrimitive* ptr, char** out, int originalPrimIndex)
 {
+    if (primUsesCutVertex(ptr))     // below the waterline / height clamp
+        return;
     primEntryStruct* pCurrentPrimEntry = &primTable[positionInPrimEntry];
 
     ASSERT(positionInPrimEntry < NUM_MAX_PRIM_ENTRY);
@@ -870,6 +902,8 @@ void processPrim_Poly(int primType, sPrimitive* ptr, char** out, int originalPri
 
 void processPrim_Point(primTypeEnum primType, sPrimitive* ptr, char** out)
 {
+    if (primUsesCutVertex(ptr))
+        return;
     primEntryStruct* pCurrentPrimEntry = &primTable[positionInPrimEntry];
 
     ASSERT(positionInPrimEntry < NUM_MAX_PRIM_ENTRY);
@@ -908,6 +942,8 @@ void processPrim_Point(primTypeEnum primType, sPrimitive* ptr, char** out)
 
 void processPrim_Sphere(int primType, sPrimitive* ptr, char** out)
 {
+    if (primUsesCutVertex(ptr))
+        return;
     primEntryStruct* pCurrentPrimEntry = &primTable[positionInPrimEntry];
 
     ASSERT(positionInPrimEntry < NUM_MAX_PRIM_ENTRY);
