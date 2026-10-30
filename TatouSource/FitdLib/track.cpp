@@ -10,7 +10,9 @@
 #include "common.h"
 #include "lifeBugfixes.h"
 #include "consoleLog.h"
+#include "modernControls.h"
 #include "math.h"
+#include "wormLog.h"
 
 #define	TL_INIT_COOR		0
 #define	TL_GOTO			1
@@ -102,6 +104,10 @@ int CapObjet(int x1,int z1, int beta, int x2, int z2)
 
 void GereManualRot(int param)
 {
+    // Keyboard + mouse controls: one exact half-turn per quick turn press
+    if (modernControlsQuickTurn(currentProcessedActorPtr))
+        return;
+
     // Quick turn left (180 degrees) - only when standing still
     if((localJoyD&0x10) && currentProcessedActorPtr->speed == 0)
     {
@@ -242,6 +248,11 @@ void processTrack(void)
     case 1: // manual
         {
             GereManualRot(40); // reduced from 60 for snappier rotation during combat
+            if (modernControlsQuickTurnActive(currentProcessedActorPtr))
+            {
+                currentProcessedActorPtr->speed = 0;    // no walking until the turn ends
+                break;
+            }
             if(localJoyD&1) // forward
             {
                 if((localJoyD&0x40) || (timer - lastTimeForward < 10 && currentProcessedActorPtr->speed != 4)) // run button held OR double-tap forward
@@ -458,6 +469,8 @@ void processTrack(void)
 
                         if (s_gotoStuckFrames[currentProcessedActorIdx] >= GOTO_STUCK_FRAME_LIMIT)
                         {
+                            WORM_LOG_TRACK(currentProcessedActorPtr, "TRACK %d pos %d GOTO room %d (%d, %d): STUCK, waypoint skipped (distance %u)",
+                                currentProcessedActorPtr->trackNumber, currentProcessedActorPtr->positionInTrack, roomNumber, x, z, distanceToPoint);
                             // Timed out — skip this unreachable waypoint
                             s_gotoStuckFrames[currentProcessedActorIdx] = 0;
                             s_gotoLastDistance[currentProcessedActorIdx] = 0;
@@ -495,6 +508,8 @@ void processTrack(void)
                     }
                     else // reached position
                     {
+                        WORM_LOG_TRACK(currentProcessedActorPtr, "TRACK %d pos %d GOTO room %d (%d, %d): reached (distance %u)",
+                            currentProcessedActorPtr->trackNumber, currentProcessedActorPtr->positionInTrack, roomNumber, x, z, distanceToPoint);
                         s_gotoStuckFrames[currentProcessedActorIdx] = 0;
                         s_gotoLastDistance[currentProcessedActorIdx] = 0;
                         currentProcessedActorPtr->positionInTrack += 4;
@@ -602,6 +617,7 @@ void processTrack(void)
             }
             case TL_END: // stop
                 {
+                    WORM_LOG_TRACK(currentProcessedActorPtr, "TRACK %d pos %d END", currentProcessedActorPtr->trackNumber, currentProcessedActorPtr->positionInTrack);
                     s_gotoStuckFrames[currentProcessedActorIdx] = 0;
                     s_gotoLastDistance[currentProcessedActorIdx] = 0;
                     currentProcessedActorPtr->speed = 0;

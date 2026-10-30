@@ -21,6 +21,7 @@
 #include "inventory.h"
 #include "tatou.h"
 #include "music.h"
+#include "modernControls.h"
 #include "consoleLog.h"
 
 //////////////////////////////////////////////////////////////////////////////
@@ -120,6 +121,9 @@ inline int life_GetPOSREL(int worldObjIdx)
 // 0x13: KEYBOARD
 inline int life_GetKEYBOARD()
 {
+    // keyboard + mouse controls: the attack / fire direction, as evalVar case 0x13
+    const int forcedInput = modernControlsKeyboardInput();
+    if (forcedInput >= 0) return forcedInput;
     if (localJoyD & 4) return 4;
     if (localJoyD & 8) return 8;
     if (localJoyD & 1) return 1;
@@ -808,7 +812,7 @@ inline void life_Water(int val)
 {
     extern s16 shakeVar1;
     shakeVar1 = val;
-    if (val > 0) setupShaking(val * 10);
+    if (val > 0 && g_gameId != AITD1) setupShaking(val * 10);   // AITD1: the cave water only
 }
 
 // LM_INVENTORY

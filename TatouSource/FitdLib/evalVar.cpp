@@ -9,6 +9,7 @@
 
 #include "common.h"
 #include "consoleLog.h"
+#include "modernControls.h"
 
 int getPosRelTable[] = {4,1,8,2,4,1,8,0};
 
@@ -401,6 +402,9 @@ int evalVar(const char* name)
                     }
                 case 0x13:
                     {
+                        const int forcedInput = modernControlsKeyboardInput();
+                        if(forcedInput >= 0)
+                            return forcedInput;
                         if(localJoyD & 4)
                             return 4;
                         if(localJoyD & 8)
@@ -851,6 +855,9 @@ int evalVar2(const char* name)
                     }
                 case 0x13:
                     {
+                        const int forcedInput = modernControlsKeyboardInput();
+                        if(forcedInput >= 0)
+                            return forcedInput;
                         if(localJoyD & 4)
                             return 4;
                         if(localJoyD & 8)

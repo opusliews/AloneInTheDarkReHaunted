@@ -34,6 +34,10 @@ struct HDBackgroundInfo
     int loadedFrameCount;        // Number of frames actually loaded
 #ifdef AITD_HD_REPAINT_BUILD
     bool isCustom;               // loaded from backgrounds_custom/ (1:1 with the vanilla frame)
+    struct HDFrameStreamer* streamer; // custom animation: frames 1.. decoded on a worker thread
+    bool playOnce;               // stop on the last frame instead of looping
+    bool finished;               // playOnce animation has shown its last frame
+    int loopFrom;                // looping restarts at this frame (loop_from.txt, 1-based in the file)
 #endif
 };
 
@@ -42,6 +46,24 @@ struct HDBackgroundInfo
 // Such images match the vanilla 320x200 frame 1:1, so the vanilla masks are
 // used and ReHaunted's masks_hd/ replacements are skipped.
 extern bool g_hdCustomBackgroundActive;
+
+// TatouHd test aid: --hd-lookup NAME:IDX[:SUFFIX]... / --hd-preload NAME:COUNT
+// print the background lookup results and exit. No-op without those options.
+void hdLookupCommandLineCheck(int argc, char* argv[]);
+
+// TatouHd: true if backgrounds_custom/ has a still or an animation folder for
+// this camera and suffix.
+bool hdCustomBackgroundExists(const char* backgroundName, int cameraIdx, const char* suffix);
+
+// TatouHd: the animated overlay backgrounds_custom/overlay_<name>_<idx>/ for this
+// camera (RGBA frames drawn over the scene, after the actors), or nullptr.
+// prefix "bgoverlay": the background overlay bgoverlay_<name>_<idx>/ instead
+// (drawn over the background only).
+HDBackgroundInfo* loadHDOverlay(const char* backgroundName, int cameraIdx, const char* prefix = "overlay");
+
+// TatouHd: show this frame of an animation (or the nearest earlier decoded one).
+// Returns true if the shown frame changed.
+bool setHDBackgroundFrame(HDBackgroundInfo* bgInfo, int frame);
 #endif
 
 // Try to load HD version of background

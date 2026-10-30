@@ -31,6 +31,7 @@ static const bgfx::ViewId kViewBlurH2    = 203;
 static const bgfx::ViewId kViewBlurV2    = 204;
 static const bgfx::ViewId kViewSSGI       = 206;
 static const bgfx::ViewId kViewSSGIBlur   = 207;
+static const bgfx::ViewId kViewBars      = 209;   // "maintain aspect ratio": the black bars
 static const bgfx::ViewId kViewComposite = 210;
 
 PostProcessing::PostProcessing()
@@ -346,10 +347,7 @@ void PostProcessing::endScene()
             0.0f, 0.0f
         };
 
-        bgfx::setViewName(kViewComposite, "Composite");
-        bgfx::setViewRect(kViewComposite, 0, 0, (uint16_t)m_width, (uint16_t)m_height);
-        bgfx::setViewFrameBuffer(kViewComposite, BGFX_INVALID_HANDLE);
-        bgfx::setViewClear(kViewComposite, BGFX_CLEAR_NONE);
+        setCompositeView();
 
         bgfx::setUniform(u_bloomParams, bloomParams);
         bgfx::setUniform(u_filmGrainParams, filmGrainParams);
@@ -583,10 +581,7 @@ void PostProcessing::renderFinalComposite()
         0.0f, 0.0f
     };
 
-    bgfx::setViewName(kViewComposite, "Composite");
-    bgfx::setViewRect(kViewComposite, 0, 0, (uint16_t)m_width, (uint16_t)m_height);
-    bgfx::setViewFrameBuffer(kViewComposite, BGFX_INVALID_HANDLE); // render to backbuffer
-    bgfx::setViewClear(kViewComposite, BGFX_CLEAR_NONE);
+    setCompositeView();
 
     bgfx::setUniform(u_bloomParams, bloomParams);
     bgfx::setUniform(u_filmGrainParams, filmGrainParams);
@@ -600,4 +595,31 @@ void PostProcessing::renderFinalComposite()
     bgfx::setTexture(2, s_texAO, m_ssaoEnabled ? m_ssaoBlurTex : m_mainColorTex);
     bgfx::setTexture(3, s_texSSGI, m_ssgiEnabled ? m_ssgiBlurTex : m_mainColorTex);
     renderFullscreenQuad(kViewComposite, m_compositeShader);
+}
+
+void PostProcessing::setLetterbox(int x, int y, int windowWidth, int windowHeight)
+{
+    m_letterboxed = true;
+    m_presentX = x;
+    m_presentY = y;
+    m_windowWidth = windowWidth;
+    m_windowHeight = windowHeight;
+}
+
+// The composite view: the scene into the backbuffer, at the game rectangle when letterboxed
+void PostProcessing::setCompositeView()
+{
+    if (m_letterboxed)
+    {
+        bgfx::setViewName(kViewBars, "Letterbox bars");
+        bgfx::setViewRect(kViewBars, 0, 0, (uint16_t)m_windowWidth, (uint16_t)m_windowHeight);
+        bgfx::setViewFrameBuffer(kViewBars, BGFX_INVALID_HANDLE);
+        bgfx::setViewClear(kViewBars, BGFX_CLEAR_COLOR, 0x000000ff);
+        bgfx::touch(kViewBars);
+    }
+
+    bgfx::setViewName(kViewComposite, "Composite");
+    bgfx::setViewRect(kViewComposite, (uint16_t)m_presentX, (uint16_t)m_presentY, (uint16_t)m_width, (uint16_t)m_height);
+    bgfx::setViewFrameBuffer(kViewComposite, BGFX_INVALID_HANDLE); // render to backbuffer
+    bgfx::setViewClear(kViewComposite, BGFX_CLEAR_NONE);
 }

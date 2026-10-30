@@ -132,6 +132,7 @@ addShaderProgram(background_vs background_ps background.varying.def)
 addShaderProgram(background_vs hdBackground_ps background.varying.def)
 addShaderProgram(maskBackground_vs maskBackground_ps maskBackground.varying.def)
 addShaderProgram(maskBackground_vs maskHDBackground_ps maskBackground.varying.def)
+addShaderProgram(maskBackground_vs maskHDOverlay_ps maskBackground.varying.def)
 addShaderProgram(flat_vs flat_ps flat.varying.def)
 addShaderProgram(flat_vs textured_ps flat.varying.def)
 addShaderProgram(noise_vs noise_ps noise.varying.def)
@@ -179,6 +180,14 @@ endif()
 
 if(AITD_HD_REPAINT_BUILD)
     target_compile_definitions(FitdLib PRIVATE AITD_HD_REPAINT_BUILD=1)
+endif()
+
+if(AITD_ATLAS_LOG)
+    target_compile_definitions(FitdLib PRIVATE AITD_ATLAS_LOG=1)
+endif()
+
+if(AITD_WORM_LOG)
+    target_compile_definitions(FitdLib PRIVATE AITD_WORM_LOG=1)
 endif()
 
 if(AITD_RANDOMIZER_EDITION)

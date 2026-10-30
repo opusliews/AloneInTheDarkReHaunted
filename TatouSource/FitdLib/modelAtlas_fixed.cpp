@@ -24,6 +24,7 @@
 #define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION
 #include "../ThirdParty/bgfx.cmake/bimg/3rdparty/stb/stb_image.h"
+#include "atlasLog.h"
 
 extern "C" {
     extern char homePath[512];
@@ -34,8 +35,16 @@ extern char RGB_Pal[256 * 3];
 // Cache of loaded atlases keyed by HQR source name + body number
 static std::unordered_map<std::string, ModelAtlasData> s_atlasCache;
 
+#ifdef AITD_HD_REPAINT_BUILD
+bool g_modelAtlasCustomFolder = false;
+#endif
+
 static std::string makeAtlasKey(const std::string& hqrName, int bodyNum)
 {
+#ifdef AITD_HD_REPAINT_BUILD
+    if (g_modelAtlasCustomFolder)
+        return "models_custom/" + hqrName + "_" + std::to_string(bodyNum);
+#endif
     return hqrName + "_" + std::to_string(bodyNum);
 }
 
@@ -351,6 +360,10 @@ static AtlasLayout computeAtlasLayout(sBody* pBody)
 static std::string getAtlasFolder()
 {
     std::string path(homePath);
+#ifdef AITD_HD_REPAINT_BUILD
+    if (g_modelAtlasCustomFolder)
+        return path + "models_custom/";
+#endif
     path += "atlases/";
     return path;
 }
@@ -470,13 +483,21 @@ static unsigned char* loadAtlasDataFromArchiveOrFile(const std::string& filePath
     {
         if (unsigned char* data = stbi_load(filePath.c_str(), &w, &h, &channels, 4))
         {
+            ATLAS_LOG_LOOSE(filePath, data, w, h, channels)
             return isAtlasOversized(w, h) ? shrinkAtlasPixels(data, w, h) : data;
         }
     }
 
+    ATLAS_LOG_STATE_DECL
     // First, try to load from atlases.hda archive
+#ifdef AITD_HD_REPAINT_BUILD
+    // A custom model's pictures fit its own shape: never ReHaunted's archived ones
+    if (!g_modelAtlasCustomFolder && HDArchive::open("atlases.hda"))
+#else
     if (HDArchive::open("atlases.hda"))
+#endif
     {
+        ATLAS_LOG_STATE("atlases.hda has no entry")
         const HDArchiveEntry* entry = HDArchive::findEntry(fileName.c_str());
         // Size check from the PNG header alone (the IHDR chunk ends at byte 33):
         // an oversized entry is skipped without reading the image, and the loose
@@ -492,6 +513,7 @@ static unsigned char* loadAtlasDataFromArchiveOrFile(const std::string& filePath
         }
         if (entry)
         {
+            ATLAS_LOG_STATE("atlases.hda entry did not decode")
             size_t dataSize = 0;
             unsigned char* archiveData = HDArchive::readEntryAlloc(entry, &dataSize);
             HDArchive::close();
@@ -509,6 +531,7 @@ static unsigned char* loadAtlasDataFromArchiveOrFile(const std::string& filePath
                     // Note: uncomment for debug logging
                     // printf(RNDR_INFO "Loaded atlas from archive: %s (%dx%d)" CON_RESET "\n",
                     //     fileName.c_str(), w, h);
+                    ATLAS_LOG_ARCHIVE_HIT(fileName, w, h)
                     return isAtlasOversized(w, h) ? shrinkAtlasPixels(pixels, w, h) : pixels;
                 }
             }
@@ -528,6 +551,7 @@ static unsigned char* loadAtlasDataFromArchiveOrFile(const std::string& filePath
         return nullptr;
     }
     unsigned char* data = stbi_load(filePath.c_str(), &w, &h, &channels, 4);
+    ATLAS_LOG_LOOSE(filePath, data, w, h, channels)
     if (data && isAtlasOversized(w, h))
         data = shrinkAtlasPixels(data, w, h);
 
@@ -733,6 +757,7 @@ bool dumpModelAtlas(int bodyNum, sBody* pBody, const std::string& hqrName)
     ensureAtlasDir();
     std::string path = getAtlasPath(hqrName, bodyNum);
     int result = stbi_write_png(path.c_str(), atlasW, atlasH, 4, image.data(), atlasW * 4);
+    ATLAS_LOG_PNG_WRITE(path, result)
 
     if (result)
     {
@@ -1120,6 +1145,7 @@ bool dumpSphereAtlas(int bodyNum, sBody* pBody, const std::string& hqrName)
     ensureAtlasDir();
     std::string path = getSphereAtlasPath(hqrName, bodyNum);
     int result = stbi_write_png(path.c_str(), atlasW, atlasH, 4, image.data(), atlasW * 4);
+    ATLAS_LOG_PNG_WRITE(path, result)
 
     if (result)
     {
@@ -1215,6 +1241,7 @@ bool dumpFlatPolyAtlas(int bodyNum, sBody* pBody, const std::string& hqrName)
     ensureAtlasDir();
     std::string path = getFlatPolyAtlasPath(hqrName, bodyNum);
     int result = stbi_write_png(path.c_str(), atlasW, atlasH, 4, image.data(), atlasW * 4);
+    ATLAS_LOG_PNG_WRITE(path, result)
 
     if (result)
     {
@@ -1310,6 +1337,7 @@ bool dumpRampAtlas(int bodyNum, sBody* pBody, const std::string& hqrName)
     ensureAtlasDir();
     std::string path = getRampAtlasPath(hqrName, bodyNum);
     int result = stbi_write_png(path.c_str(), atlasW, atlasH, 4, image.data(), atlasW * 4);
+    ATLAS_LOG_PNG_WRITE(path, result)
 
     if (result)
     {
@@ -1401,6 +1429,7 @@ bool dumpOtherAtlas(int bodyNum, sBody* pBody, const std::string& hqrName)
     ensureAtlasDir();
     std::string path = getOtherAtlasPath(hqrName, bodyNum);
     int result = stbi_write_png(path.c_str(), atlasW, atlasH, 4, image.data(), atlasW * 4);
+    ATLAS_LOG_PNG_WRITE(path, result)
 
     if (result)
     {
@@ -1610,6 +1639,7 @@ bool dumpTatouAtlas(int bodyNum, sBody* pBody, const std::string& hqrName)
     ensureAtlasDir();
     std::string path = getTatouAtlasPath(hqrName, bodyNum);
     int result = stbi_write_png(path.c_str(), atlasW, atlasH, 4, image.data(), atlasW * 4);
+    ATLAS_LOG_PNG_WRITE(path, result)
 
     if (result)
     {

@@ -44,7 +44,11 @@ endif()
 add_executable (Fitd ${SOURCES})
 
 # Keep the experiment binary separate from the normal executable.
-if(AITD_RANDOMIZER_EXPERIMENT)
+if(AITD_ATLAS_LOG)
+    set_target_properties(Fitd PROPERTIES OUTPUT_NAME "TatouAtlasLog")
+elseif(AITD_WORM_LOG)
+    set_target_properties(Fitd PROPERTIES OUTPUT_NAME "TatouWormLog")
+elseif(AITD_RANDOMIZER_EXPERIMENT)
     set_target_properties(Fitd PROPERTIES OUTPUT_NAME "TatouTest")
 elseif(AITD_FAKE_DOOR_EXPERIMENT)
     set_target_properties(Fitd PROPERTIES OUTPUT_NAME "TatouFake")

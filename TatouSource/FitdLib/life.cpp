@@ -11,6 +11,7 @@
 #include <stdio.h>
 
 #include "common.h"
+#include "modernControls.h"
 #include "consoleLog.h"
 #include "hybrid.h"
 #include "hdBackground.h"
@@ -2367,14 +2368,15 @@ void processLife(int lifeNum, bool callFoundLife)
                 currentLifePtr += 2;
                 break;
             }
-            case LM_WATER: // water/worm attack effect with screen shake
+            case LM_WATER: // AITD1: the cave water on / off (renderer.h modelHeightLimit)
             {
                 appendFormated("LM_WATER ");
                 shakeVar1 = *(s16*)(currentLifePtr);
                 currentLifePtr += 2;
 
-                // Trigger screen shake for dramatic water/worm effects
-                if (shakeVar1 > 0)
+                // AITD1 (INDARK.EXE 1a8f:1a21): only the waterline threshold, no shake; the
+                // renderer cuts models below room y -600 while shakeVar1 != 0
+                if (shakeVar1 > 0 && g_gameId != AITD1)
                 {
                     setupShaking(shakeVar1 * 10); // Amplify for dramatic effect
                 }
@@ -2548,6 +2550,8 @@ void processLife(int lifeNum, bool callFoundLife)
                     time = evalChrono(&chrono);
 
                     if (time > (unsigned int)delay)
+                        break;
+                    if (modernControlsMessageClick())   // keyboard + mouse controls
                         break;
                 } while (!key && !Click);
                 g_menuActive = false;

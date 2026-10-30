@@ -43,6 +43,9 @@ void imguiRebuildFontTexture(); // Rebuild font texture after adding fonts dynam
 void imguiBeginFrame(int32_t _mx, int32_t _my, uint8_t _button, int32_t _scroll, uint16_t _width, uint16_t _height, int _inputChar = -1, bgfx::ViewId _view = 255);
 void imguiEndFrame();
 
+// "Maintain aspect ratio": ImGui draws at this offset in the backbuffer (0, 0 by default)
+void imguiSetViewOffset(int _x, int _y);
+
 // Track whether we're between imguiBeginFrame() and imguiEndFrame()
 extern bool g_imguiFrameActive;
 

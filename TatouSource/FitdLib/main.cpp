@@ -8,6 +8,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 #include "common.h"
+#include "modernControls.h"
 #include "consoleLog.h"
 #include "embedded/embeddedData.h"
 
@@ -43,6 +44,9 @@ extern void playMenuSound(const char* soundName);
 #include "configRemaster.h"
 #include "remasterOptions.h"
 #include "jobSystemInit.h"
+#ifdef AITD_HD_REPAINT_BUILD
+#include "hdCustomModel.h"
+#endif
 
 #include <array>
 #include <algorithm>
@@ -1200,7 +1204,28 @@ int Lire(int index, int startx, int top, int endx, int bottom, int demoMode, int
                 localJoyD = JoyD;
                 localClick = Click;
 
+                // Keyboard + mouse controls: a left click turns the page; on the last page it closes
+                if (modernControlsMessageClick())
+                {
+                    if (lastPageReached)
+                    {
+                        quit = 1;
+                        break;
+                    }
+                    previousPage = page;
+                    page++;
+                    notifyTTFMenuSelectionChanged();
+                    if (demoMode == 2 || vocIndex >= 0)
+                    {
+                        playSound(CVars[getCVarsIdx(SAMPLE_PAGE)]);
+                        LastSample = -1;
+                        LastPriority = -1;
+                    }
+                    break;
+                }
+
                 // Mouse: click anywhere to exit, left region for prev page, right region for next page
+                if (!modernControlsEnabled())
                 {
                     static ImVec2 s_lireMouse = { -1.0f, -1.0f };
                     ImVec2 gm = menuGetGameMouse();
@@ -1593,6 +1618,334 @@ void initVars()
     initVarsSub1();
 }
 
+#ifdef AITD_HD_REPAINT_BUILD
+// TatouHd: the collapsing floor in the first-floor corridor (stage 1, room 1).
+// OBJ 30 is the floor model over the hole; LIFE 38 deletes it when the floor
+// gives way under the player. On CAMERA01 002/003, when backgrounds_custom/ has a
+// _BROKEN version, the model is not drawn over the custom painting (which shows
+// the intact floor). Once the model is deleted, anim_CAMERA01_<idx>_BREAK/ plays
+// once (if present) and then CAMERA01_<idx>_BROKEN replaces the painting.
+// Both are loaded when the camera is entered, so the switch costs no decoding.
+static const int kFloorHoleObject = 30;
+static int g_floorHoleCamera = -1;                      // camera showing the intact floor, or -1
+static HDBackgroundInfo* g_floorHoleBreak = nullptr;    // the break animation while it plays
+static HDBackgroundInfo* g_floorHoleNextBreak = nullptr;  // loaded, not shown yet
+static HDBackgroundInfo* g_floorHoleNextBroken = nullptr; // loaded, not shown yet
+static bool g_floorHoleDone = false;                    // the broken floor has been reached
+
+// The intro (startGame(7, 1, 0)) walks through the mansion in daylight; the
+// game proper is at night. While it plays, a camera with a custom
+// <name>_<idx>_INTRO picture uses it instead of the plain one. The same
+// picture is used again once the sorcerer is dead (the tree burned, LIFE 522):
+// the ending walks out of the mansion at sunrise.
+static bool g_hdIntroPlaying = false;
+
+static bool hdUseIntroPicture()
+{
+    return g_hdIntroPlaying || (g_gameId == AITD1 && CVars[getCVarsIdx(KILLED_SORCERER)] == 1);
+}
+
+static bool isFloorHoleCamera(const char* name, int cameraIdx)
+{
+    return g_gameId == AITD1 && g_currentFloor == 1 && (cameraIdx == 2 || cameraIdx == 3) &&
+        strcmp(name, "CAMERA01") == 0 && hdCustomBackgroundExists(name, cameraIdx, "BROKEN");
+}
+
+static bool floorHoleObjectDeleted()
+{
+    return (int)ListWorldObjets.size() > kFloorHoleObject && ListWorldObjets[kFloorHoleObject].room == -1;
+}
+
+// The floor camera last loaded by loadCamera (-1 for an ITD_RESS picture)
+static int g_hdCameraIdx = -1;
+
+// OBJ 98 (the Smoking Room "smoke" object, room 13) is drawn on the Drawing
+// Room's CAMERA03_019, which also views room 13; the custom painting there
+// doesn't want it. Hidden only while the custom painting is on screen.
+static const int kSmokeObject = 98;
+
+// OBJ 125 (a record, on the Ballroom table F3:R3:HC14) is drawn on the Drawing
+// Room's CAMERA03_020 and on CAMERA03_004 (room 4), which also view room 3. With Shuffle Visible Items the
+// randomizer moves the item placed there onto that table (x/z clamped to the
+// table's box) and OBJ 125 off-world, so any item lying in the box is hidden too.
+// Items have a found life; the Ballroom ghosts (145-147) don't.
+static const int kRecordObject = 125;
+
+// OBJ 231 (the hook-operated door in F5:R9) is drawn on CAMERA05_024; the custom
+// painting there doesn't want it. Hidden only while the custom painting is on screen.
+static const int kHookDoorObject = 231;
+
+// OBJ 30 (a decoration in F1:R1, the 3rd-floor corridor: model 32, no script, not an item) is
+// drawn on CAMERA01_004, CAMERA01_007 and CAMERA01_010; the custom paintings there don't want it
+// (user, 2026-10-28). Hidden only while the custom painting is on screen.
+static const int kCorridorObject = 30;
+
+static bool onRecordTable(int idx)
+{
+    if (idx < 0 || idx >= (int)ListWorldObjets.size())
+        return false;
+    const tWorldObject& w = ListWorldObjets[idx];
+    return w.stage == 3 && w.room == 3 && w.foundLife != -1 &&
+        w.x >= 2200 && w.x <= 2700 && w.z >= 3800 && w.z <= 4300;
+}
+
+static bool hdHideObject(const tObject* actorPtr)
+{
+    if (g_floorHoleCamera != -1 && actorPtr->indexInWorld == kFloorHoleObject)
+        return true;
+    if (g_gameId != AITD1)
+        return false;
+    if (g_currentFloor == 1)
+        return (g_hdCameraIdx == 4 || g_hdCameraIdx == 7 || g_hdCameraIdx == 10) &&
+            actorPtr->indexInWorld == kCorridorObject && isCustomHDBackgroundShown();
+    if (g_currentFloor == 5)
+        return g_hdCameraIdx == 24 && actorPtr->indexInWorld == kHookDoorObject && isCustomHDBackgroundShown();
+    if (g_currentFloor != 3)
+        return false;
+    if (g_hdCameraIdx == 19)
+        return actorPtr->indexInWorld == kSmokeObject && isCustomHDBackgroundShown();
+    if (g_hdCameraIdx == 20 || g_hdCameraIdx == 4)
+        return (actorPtr->indexInWorld == kRecordObject || onRecordTable(actorPtr->indexInWorld)) &&
+            isCustomHDBackgroundShown();
+    return false;
+}
+
+static void freeFloorHolePending()
+{
+    if (g_floorHoleNextBreak)
+        freeHDBackground(g_floorHoleNextBreak);
+    if (g_floorHoleNextBroken)
+        freeHDBackground(g_floorHoleNextBroken);
+    g_floorHoleNextBreak = g_floorHoleNextBroken = nullptr;
+}
+
+static void showFloorHoleBackground(HDBackgroundInfo* bg)
+{
+    updateBackgroundTextureHD(bg->data, bg->width, bg->height, bg->channels);
+    g_hdCustomBackgroundActive = bg->isCustom;
+    if (bg->isAnimated)
+    {
+        setCurrentAnimatedHDBackground(bg);
+    }
+    else
+    {
+        setCurrentAnimatedHDBackground(nullptr);
+        freeHDBackground(bg);
+    }
+}
+
+// Called once per game frame.
+static void updateFloorHole()
+{
+    if (g_floorHoleCamera == -1)
+        return;
+
+    if (!g_floorHoleBreak)
+    {
+        if (!floorHoleObjectDeleted())
+            return;
+        printf("TatouHd floor hole: OBJ 30 deleted on CAMERA01_%03d, %s\n", g_floorHoleCamera,
+               g_floorHoleNextBreak ? "playing the break" : "no break animation");
+        if (HDBackgroundInfo* anim = g_floorHoleNextBreak)
+        {
+            g_floorHoleNextBreak = nullptr;
+            anim->playOnce = true;
+            showFloorHoleBackground(anim);
+            g_floorHoleBreak = anim;
+            return;
+        }
+    }
+    else if (g_currentAnimatedHDBackground != g_floorHoleBreak || !g_floorHoleBreak->finished)
+    {
+        return;
+    }
+
+    HDBackgroundInfo* broken = g_floorHoleNextBroken;
+    g_floorHoleNextBroken = nullptr;
+    if (!broken)
+        broken = loadHDBackground("CAMERA01", g_floorHoleCamera, "BROKEN");
+    printf("TatouHd floor hole: CAMERA01_%03d now broken\n", g_floorHoleCamera);
+    if (broken)
+        showFloorHoleBackground(broken);
+    g_floorHoleDone = true;
+    g_floorHoleCamera = -1;
+    g_floorHoleBreak = nullptr;
+}
+
+// TatouHd: the camera's animated overlay, backgrounds_custom/overlay_<name>_<idx>/
+// (RGBA frames drawn over the scene after the actors; frame_ms.txt and
+// loop_from.txt as for animations). Optional show_while_object.txt: a world
+// object number; the overlay shows while that object exists and fades out once
+// it is deleted (e.g. the Smoking Room smoke, OBJ 98, deleted by the jug).
+static char g_hdOverlayName[16] = "";
+static int g_hdOverlayCamera = -1;
+static int g_hdOverlayObject = -1;
+
+// Synced overlays (a sync_smoke.txt in the folder): the frame follows the age of the
+// live smoke cloud (special effect 4), spread over its whole cycle (SMOKE_CLOUD_END
+// ticks), so every camera with one shows the same moment; nothing while there is no
+// cloud. All of them on the floor are loaded when the floor's first camera loads and
+// kept until the floor changes, so a camera switch mid-cycle needs no decoding. They
+// load and follow the cloud with HD backgrounds off too (only the drawing stops), so
+// switching HD backgrounds on mid-cycle shows the right frame at once.
+struct HDSyncOverlay
+{
+    int camera;
+    HDBackgroundInfo* bg;
+};
+static char g_hdSyncFloorName[16] = "";
+static std::vector<HDSyncOverlay> g_hdSyncOverlays;
+static HDBackgroundInfo* g_hdSyncCurrent = nullptr;     // the synced overlay on screen
+
+static void loadFloorSyncOverlays(const char* name)
+{
+    if (strcmp(g_hdSyncFloorName, name) == 0)
+        return;
+    setCurrentHDOverlay(nullptr);       // it may be one of the overlays freed below
+    g_hdOverlayCamera = -1;
+    g_hdSyncCurrent = nullptr;
+    for (HDSyncOverlay& o : g_hdSyncOverlays)
+        freeHDBackground(o.bg);
+    g_hdSyncOverlays.clear();
+    strcpy_s(g_hdSyncFloorName, sizeof(g_hdSyncFloorName), name);
+
+    for (int c = 0; c < (int)g_currentFloorCameraData.size(); c++)
+    {
+        char path[600];
+        snprintf(path, sizeof(path), "backgrounds_custom/overlay_%s_%03d/sync_smoke.txt", name, c);
+        if (GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES)
+            continue;
+        if (HDBackgroundInfo* bg = loadHDOverlay(name, c))
+        {
+            g_hdSyncOverlays.push_back({ c, bg });
+            printf("TatouHd overlay: %s_%03d synced to the smoke cloud, %d frames over %d ticks\n", name, c,
+                   bg->frameCount, SMOKE_CLOUD_END);
+        }
+    }
+}
+
+// The live smoke cloud's age in timer ticks, or -1.
+static int smokeCloudAge()
+{
+    for (tObject& actor : ListObjets)
+        if (actor.indexInWorld == -2 && actor.ANIM == 4)
+            return evalChrono(&actor.CHRONO);
+    return -1;
+}
+
+static bool hdOverlayObjectExists(int obj)
+{
+    return obj >= 0 && obj < (int)ListWorldObjets.size() && ListWorldObjets[obj].room != -1;
+}
+
+static void loadCameraOverlay(const char* name, int cameraIdx)
+{
+    loadFloorSyncOverlays(name);
+    if (isHDOverlayActive() && g_hdOverlayCamera == cameraIdx && strcmp(g_hdOverlayName, name) == 0)
+        return;                 // the same camera reloaded: keep the overlay playing
+    setCurrentHDOverlay(nullptr);
+    g_hdOverlayCamera = -1;
+    g_hdOverlayObject = -1;
+    g_hdSyncCurrent = nullptr;
+
+    for (HDSyncOverlay& o : g_hdSyncOverlays)
+    {
+        if (o.camera != cameraIdx)
+            continue;
+        setCurrentHDOverlay(o.bg, false, true);
+        strcpy_s(g_hdOverlayName, sizeof(g_hdOverlayName), name);
+        g_hdOverlayCamera = cameraIdx;
+        g_hdSyncCurrent = o.bg;
+        return;
+    }
+
+    int object = -1;
+    char path[600];
+    // a synced folder whose overlay failed to load is never played on its own timer
+    snprintf(path, sizeof(path), "backgrounds_custom/overlay_%s_%03d/sync_smoke.txt", name, cameraIdx);
+    if (GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES)
+        return;
+    snprintf(path, sizeof(path), "backgrounds_custom/overlay_%s_%03d/show_while_object.txt", name, cameraIdx);
+    FILE* file = nullptr;
+    fopen_s(&file, path, "r");
+    if (file)
+    {
+        if (fscanf_s(file, "%d", &object) != 1 || object < 0)
+        {
+            printf("TatouHd overlay: %s: expected an object number\n", path);
+            object = -1;
+        }
+        fclose(file);
+        if (object >= 0 && !hdOverlayObjectExists(object))
+        {
+            printf("TatouHd overlay: %s_%03d not shown, OBJ %d is gone\n", name, cameraIdx, object);
+            return;
+        }
+    }
+
+    HDBackgroundInfo* overlay = loadHDOverlay(name, cameraIdx);
+    if (!overlay)
+        return;
+    printf("TatouHd overlay: %s_%03d, %d frames, %d ms per frame, loop from frame %d, %s\n", name, cameraIdx,
+           overlay->frameCount, (int)(overlay->frameTime * 1000.0f + 0.5f), overlay->loopFrom + 1,
+           object >= 0 ? ("while OBJ " + std::to_string(object) + " exists").c_str() : "always");
+    setCurrentHDOverlay(overlay);
+    strcpy_s(g_hdOverlayName, sizeof(g_hdOverlayName), name);
+    g_hdOverlayCamera = cameraIdx;
+    g_hdOverlayObject = object;
+}
+
+// TatouHd: the camera's background overlays, backgrounds_custom/bgoverlay_<name>_<idx>/
+// and bgoverlay2_<name>_<idx>/ (drawn over the first). RGBA frames drawn over the
+// custom background only: under the actors, and again inside the masks; frame_ms.txt
+// and loop_from.txt as for animations. Kept playing when the same camera reloads;
+// also shown in the DARK version of the camera.
+static const char* const kHDBgOverlayPrefix[kHDBackgroundOverlayLayers] = { "bgoverlay", "bgoverlay2" };
+static char g_hdBgOverlayName[kHDBackgroundOverlayLayers][16] = {};
+static int g_hdBgOverlayCamera[kHDBackgroundOverlayLayers] = { -1, -1 };
+
+static void loadCameraBackgroundOverlay(const char* name, int cameraIdx)
+{
+    for (int layer = 0; layer < kHDBackgroundOverlayLayers; layer++)
+    {
+        if (isHDBackgroundOverlayActive(layer) && g_hdBgOverlayCamera[layer] == cameraIdx &&
+            strcmp(g_hdBgOverlayName[layer], name) == 0)
+            continue;
+        setCurrentHDBackgroundOverlay(layer, nullptr);
+        g_hdBgOverlayCamera[layer] = -1;
+        HDBackgroundInfo* overlay = loadHDOverlay(name, cameraIdx, kHDBgOverlayPrefix[layer]);
+        if (!overlay)
+            continue;
+        printf("TatouHd background overlay %d: %s_%03d, %d frames, %dx%d, %d ms per frame, loop from frame %d\n",
+               layer + 1, name, cameraIdx, overlay->frameCount, overlay->width, overlay->height,
+               (int)(overlay->frameTime * 1000.0f + 0.5f), overlay->loopFrom + 1);
+        setCurrentHDBackgroundOverlay(layer, overlay);
+        strcpy_s(g_hdBgOverlayName[layer], sizeof(g_hdBgOverlayName[layer]), name);
+        g_hdBgOverlayCamera[layer] = cameraIdx;
+    }
+}
+
+// Called once per game frame.
+static void updateCameraOverlay()
+{
+    if (g_hdSyncCurrent)
+    {
+        const int age = smokeCloudAge();
+        int frame = -1;
+        if (age >= 0)
+        {
+            frame = (int)((long long)age * g_hdSyncCurrent->frameCount / SMOKE_CLOUD_END);
+            if (frame >= g_hdSyncCurrent->frameCount)
+                frame = g_hdSyncCurrent->frameCount - 1;
+        }
+        setHDOverlayFrame(frame);
+        return;
+    }
+    if (g_hdOverlayObject >= 0 && isHDOverlayActive())
+        setHDOverlayVisible(hdOverlayObjectExists(g_hdOverlayObject));
+}
+#endif
+
 void loadCamera(int cameraIdx)
 {
     char name[16];
@@ -1679,6 +2032,18 @@ void loadCamera(int cameraIdx)
         osystem_setPalette(&currentGamePalette);
     }
 
+#ifdef AITD_HD_REPAINT_BUILD
+    // The same camera reloaded while the break plays (the view is re-initialised
+    // during the fall): keep the break running instead of restarting it.
+    if (g_floorHoleBreak && g_currentAnimatedHDBackground == g_floorHoleBreak && useSpecial == -1 &&
+        g_currentFloor == 1 && cameraIdx == g_floorHoleCamera)
+    {
+        printf("TatouHd floor hole: CAMERA01_%03d reloaded during the break, kept\n", cameraIdx);
+        return;
+    }
+    freeFloorHolePending();
+#endif
+
     // Release old HD background BEFORE loading the new one.
     // Without this, old + new both live in RAM simultaneously, which can exhaust
     // memory on large animated backgrounds (potentially hundreds of MB each).
@@ -1698,10 +2063,26 @@ void loadCamera(int cameraIdx)
     HDBackgroundInfo* hdBg = nullptr;
     bool isFromCache = false;
 
+#ifdef AITD_HD_REPAINT_BUILD
+    g_floorHoleCamera = -1;
+    g_floorHoleBreak = nullptr;    // freed above with g_currentAnimatedHDBackground
+    if (hdUseIntroPicture() && !bgSuffix && useSpecial == -1 && hdCustomBackgroundExists(name, cameraIdx, "INTRO"))
+        bgSuffix = "INTRO";
+    const bool floorHoleCamera = !bgSuffix && useSpecial == -1 && isFloorHoleCamera(name, cameraIdx);
+    if (!floorHoleObjectDeleted())
+        g_floorHoleDone = false;   // a new game or a loaded save
+    if (floorHoleCamera && g_floorHoleDone)
+        bgSuffix = "BROKEN";
+    // The preload cache holds plain and DARK only (not BROKEN or INTRO)
+    const bool useCache = !bgSuffix || strcmp(bgSuffix, "DARK") == 0;
+#else
+    const bool useCache = true;
+#endif
+
     // Check preload cache first (only for standard camera loads, not special ITD_RESS overrides)
     // Note: Only static backgrounds are cached; animated ones are always loaded fresh
     // (not when HD backgrounds were switched off after the floor was preloaded)
-    if (useSpecial == -1 && isHDBackgroundEnabled() && areHDBackgroundsPreloaded())
+    if (useCache && useSpecial == -1 && isHDBackgroundEnabled() && areHDBackgroundsPreloaded())
     {
         hdBg = getPreloadedHDBackground(cameraIdx, bgSuffix);
         isFromCache = (hdBg != nullptr);
@@ -1715,6 +2096,23 @@ void loadCamera(int cameraIdx)
 
 #ifdef AITD_HD_REPAINT_BUILD
     g_hdCustomBackgroundActive = hdBg && hdBg->isCustom;
+    g_hdCameraIdx = useSpecial == -1 ? cameraIdx : -1;
+    // Armed until the broken floor is reached (also if OBJ 30 was deleted before
+    // this load: the break then starts on the next frame).
+    if (floorHoleCamera && !g_floorHoleDone && g_hdCustomBackgroundActive)
+    {
+        g_floorHoleCamera = cameraIdx;
+        if (hdCustomBackgroundExists(name, cameraIdx, "BREAK"))
+            g_floorHoleNextBreak = loadHDBackground(name, cameraIdx, "BREAK");
+        if (g_floorHoleNextBreak && !g_floorHoleNextBreak->isAnimated)
+        {
+            freeHDBackground(g_floorHoleNextBreak);
+            g_floorHoleNextBreak = nullptr;
+        }
+        g_floorHoleNextBroken = loadHDBackground(name, cameraIdx, "BROKEN");
+        printf("TatouHd floor hole: CAMERA01_%03d intact, OBJ 30 hidden, break %s\n", cameraIdx,
+               g_floorHoleNextBreak ? "ready" : "none");
+    }
 #endif
 
     if (hdBg)
@@ -1727,6 +2125,13 @@ void loadCamera(int cameraIdx)
         {
             // Animated backgrounds are never from cache
             setCurrentAnimatedHDBackground(hdBg);
+#ifdef AITD_HD_REPAINT_BUILD
+            // The grass mask is ReHaunted's occlusion for its own CAMERA07_004
+            // animation; custom backgrounds use the vanilla masks instead.
+            if (hdBg->isCustom)
+                bgAnimGrassMask_onAnimatedBackgroundLoaded(nullptr, -1, nullptr);
+            else
+#endif
             bgAnimGrassMask_onAnimatedBackgroundLoaded(name, cameraIdx, hdBg);
         }
         else
@@ -1753,6 +2158,40 @@ void loadCamera(int cameraIdx)
             recreateBackgroundTexture(320, 200);
         }
     }
+#ifdef AITD_HD_REPAINT_BUILD
+    char noMasksPath[600];
+    snprintf(noMasksPath, sizeof(noMasksPath), "backgrounds_custom/no_masks_%s_%03d.txt", name, cameraIdx);
+    std::vector<int> noMaskNumbers;
+    FILE* noMasksFile = nullptr;
+    fopen_s(&noMasksFile, noMasksPath, "r");
+    const bool noMasks = noMasksFile != nullptr;
+    if (noMasksFile)
+    {
+        // mask numbers separated by spaces, commas or new lines; none: every mask
+        char text[256] = {};
+        fread(text, 1, sizeof(text) - 1, noMasksFile);
+        fclose(noMasksFile);
+        char* next = nullptr;
+        for (char* word = strtok_s(text, " ,;\t\r\n", &next); word; word = strtok_s(nullptr, " ,;\t\r\n", &next))
+        {
+            char* end = nullptr;
+            const long n = strtol(word, &end, 10);
+            if (*end || n < 0)
+                printf("TatouHd: %s: '%s' is not a mask number, ignored\n", noMasksPath, word);
+            else
+                noMaskNumbers.push_back((int)n);
+        }
+        printf("TatouHd: %s_%03d: vanilla masks off:", name, cameraIdx);
+        if (noMaskNumbers.empty())
+            printf(" all");
+        for (int n : noMaskNumbers)
+            printf(" %d", n);
+        printf("\n");
+    }
+    setHDCustomNoMasks(noMasks, noMaskNumbers);
+    loadCameraOverlay(name, cameraIdx);
+    loadCameraBackgroundOverlay(name, cameraIdx);
+#endif
 }
 
 struct sMaskStruct
@@ -1861,6 +2300,9 @@ void createAITD1Mask()
     if (!room_PtrCamera[NumCamera])
         return;
 
+#ifdef AITD_HD_REPAINT_BUILD
+    int maskNumber = 0;     // counted over the viewed rooms, as in no_masks_<NAME>_<idx>.txt
+#endif
     for (int viewedRoomIdx = 0; viewedRoomIdx < cameraDataTable[NumCamera]->numViewedRooms; viewedRoomIdx++)
     {
         cameraViewedRoomStruct* pcameraViewedRoomData = &cameraDataTable[NumCamera]->viewedRoomTable[viewedRoomIdx];
@@ -1878,6 +2320,9 @@ void createAITD1Mask()
 
         for (int maskIdx = 0; maskIdx < numMask; maskIdx++)
         {
+#ifdef AITD_HD_REPAINT_BUILD
+            noteHDCameraMask(viewedRoomIdx, maskIdx, maskNumber++);
+#endif
             sMaskStruct theMaskStruct;
             sMaskStruct* pDestMask = &theMaskStruct;
             pDestMask->mask.fill(0);
@@ -2617,6 +3062,10 @@ void GenereAffList()
         tObject* actorPtr = &ListObjets[i];
         if (actorPtr->indexInWorld != -1 && actorPtr->bodyNum != -1)
         {
+#ifdef AITD_HD_REPAINT_BUILD
+            if (hdHideObject(actorPtr))
+                continue;
+#endif
             if (checkActorInRoom(actorPtr->room))
             {
                 Index[NbAffObjets] = i;
@@ -3690,6 +4139,14 @@ void AffSpecialObjet(int actorIdx) // draw flow
         return;
     }
 
+#ifdef AITD_HD_REPAINT_BUILD
+    // TatouHd: on a custom HD background the smoke is painted (a camera overlay, or
+    // none at all), so the cloud keeps its timing above but is not drawn. With HD
+    // backgrounds switched off (F1 or the detail option) the puffs show again.
+    if (mode == 4 && isCustomHDBackgroundShown())
+        return;
+#endif
+
     // modes 2 (impact) and 3 (flash) have no particle data, draw a simple point
     if (mode == 2 || mode == 3)
     {
@@ -3948,6 +4405,11 @@ void drawSceneObjects()
 
         tObject* actorPtr = &ListObjets[currentDrawActor];
 
+#ifdef AITD_HD_REPAINT_BUILD
+        if (hdHideObject(actorPtr))
+            continue;
+#endif
+
         if (actorPtr->objectType & AF_SPECIAL)
             continue;
 
@@ -3982,8 +4444,14 @@ void drawSceneObjects()
             drawBlobShadow(actorPtr->worldX + actorPtr->stepX, actorPtr->worldY + actorPtr->stepY, actorPtr->worldZ + actorPtr->stepZ, actorPtr->alpha, actorPtr->beta, actorPtr->gamma, bodyPtr);
         }
 
+#ifdef AITD_HD_REPAINT_BUILD
+        // TatouHd: models_custom/ replaces the drawn model while HD is on (hdCustomModel.cpp)
+        sBody* drawBodyPtr = hdSetCurrentBody(actorPtr->bodyNum, bodyPtr, HQ_Bodys->string);
+#else
+        sBody* drawBodyPtr = bodyPtr;
         setCurrentBodyNum(actorPtr->bodyNum, bodyPtr, HQ_Bodys->string);
-        const int renderResult = AffObjet(actorPtr->worldX + actorPtr->stepX, actorPtr->worldY + actorPtr->stepY, actorPtr->worldZ + actorPtr->stepZ, actorPtr->alpha, actorPtr->beta, actorPtr->gamma, bodyPtr);
+#endif
+        const int renderResult = AffObjet(actorPtr->worldX + actorPtr->stepX, actorPtr->worldY + actorPtr->stepY, actorPtr->worldZ + actorPtr->stepZ, actorPtr->alpha, actorPtr->beta, actorPtr->gamma, drawBodyPtr);
 
         if (renderResult == 0 && actorPtr->indexInWorld >= 0 &&
             actorPtr->indexInWorld < static_cast<int>(ListWorldObjets.size()))
@@ -3994,8 +4462,8 @@ void drawSceneObjects()
 
         if (shouldDrawShadows && !actorPtr->hidePlanarShadow)
         {
-            drawPlanarShadow(actorPtr->worldX + actorPtr->stepX, actorPtr->worldY + actorPtr->stepY, actorPtr->worldZ + actorPtr->stepZ, actorPtr->alpha, actorPtr->beta, actorPtr->gamma, bodyPtr);
-            drawWallPlanarShadow(actorPtr->worldX + actorPtr->stepX, actorPtr->worldY + actorPtr->stepY, actorPtr->worldZ + actorPtr->stepZ, actorPtr->alpha, actorPtr->beta, actorPtr->gamma, bodyPtr, actorPtr->room);
+            drawPlanarShadow(actorPtr->worldX + actorPtr->stepX, actorPtr->worldY + actorPtr->stepY, actorPtr->worldZ + actorPtr->stepZ, actorPtr->alpha, actorPtr->beta, actorPtr->gamma, drawBodyPtr);
+            drawWallPlanarShadow(actorPtr->worldX + actorPtr->stepX, actorPtr->worldY + actorPtr->stepY, actorPtr->worldZ + actorPtr->stepZ, actorPtr->alpha, actorPtr->beta, actorPtr->gamma, drawBodyPtr, actorPtr->room);
         }
         if (BBox3D1 < 0) BBox3D1 = 0;
         if (BBox3D3 > 319) BBox3D3 = 319;
@@ -4023,6 +4491,11 @@ void drawSceneObjects()
 void AllRedraw(int flagFlip)
 {
     uiLayer.fill(0);
+
+#ifdef AITD_HD_REPAINT_BUILD
+    updateFloorHole();
+    updateCameraOverlay();
+#endif
 
     //if(flagFlip == 2)
     {
@@ -4066,6 +4539,12 @@ void AllRedraw(int flagFlip)
         GenereAffList();
     }
 
+#ifdef AITD_HD_REPAINT_BUILD
+    // The camera's background overlay (water, etc.) goes over the background only:
+    // before every actor and shadow, and again inside the masks (osystem_drawMask).
+    osystem_drawHDBackgroundOverlay();
+#endif
+
     // Stencil pre-pass: mark mask foreground pixels with stencil=2
     // so that shadow rendering (which tests stencil==0) is rejected there.
     // Only marks masks that are covering the player.
@@ -4085,6 +4564,15 @@ void AllRedraw(int flagFlip)
         }
         else {
             tObject* actorPtr = &ListObjets[currentDrawActor];
+
+#ifdef AITD_HD_REPAINT_BUILD
+            if (hdHideObject(actorPtr))
+            {
+                actorPtr->screenXMin = actorPtr->screenYMin = -1;
+                actorPtr->screenXMax = actorPtr->screenYMax = -1;
+                continue;
+            }
+#endif
 
             // this is commented out to draw actors backed into the background
             //if(actorPtr->_flags & (AF_ANIMATED + AF_DRAWABLE + AF_SPECIAL))
@@ -4144,8 +4632,14 @@ void AllRedraw(int flagFlip)
                             drawBlobShadow(actorPtr->worldX + actorPtr->stepX, actorPtr->worldY + actorPtr->stepY, actorPtr->worldZ + actorPtr->stepZ, actorPtr->alpha, actorPtr->beta, actorPtr->gamma, bodyPtr);
                         }
 
+#ifdef AITD_HD_REPAINT_BUILD
+                        // TatouHd: models_custom/ replaces the drawn model while HD is on (hdCustomModel.cpp)
+                        sBody* drawBodyPtr = hdSetCurrentBody(actorPtr->bodyNum, bodyPtr, HQ_Bodys->string);
+#else
+                        sBody* drawBodyPtr = bodyPtr;
                         setCurrentBodyNum(actorPtr->bodyNum, bodyPtr, HQ_Bodys->string);
-                        const int renderResult = AffObjet(actorPtr->worldX + actorPtr->stepX, actorPtr->worldY + actorPtr->stepY, actorPtr->worldZ + actorPtr->stepZ, actorPtr->alpha, actorPtr->beta, actorPtr->gamma, bodyPtr);
+#endif
+                        const int renderResult = AffObjet(actorPtr->worldX + actorPtr->stepX, actorPtr->worldY + actorPtr->stepY, actorPtr->worldZ + actorPtr->stepZ, actorPtr->alpha, actorPtr->beta, actorPtr->gamma, drawBodyPtr);
 
                         if (renderResult == 0 && actorPtr->indexInWorld >= 0 &&
                             actorPtr->indexInWorld < static_cast<int>(ListWorldObjets.size()))
@@ -4163,8 +4657,8 @@ void AllRedraw(int flagFlip)
 
                         if (shouldDrawShadows && !actorPtr->hidePlanarShadow)
                         {
-                            drawPlanarShadow(actorPtr->worldX + actorPtr->stepX, actorPtr->worldY + actorPtr->stepY, actorPtr->worldZ + actorPtr->stepZ, actorPtr->alpha, actorPtr->beta, actorPtr->gamma, bodyPtr);
-                            drawWallPlanarShadow(actorPtr->worldX + actorPtr->stepX, actorPtr->worldY + actorPtr->stepY, actorPtr->worldZ + actorPtr->stepZ, actorPtr->alpha, actorPtr->beta, actorPtr->gamma, bodyPtr, actorPtr->room);
+                            drawPlanarShadow(actorPtr->worldX + actorPtr->stepX, actorPtr->worldY + actorPtr->stepY, actorPtr->worldZ + actorPtr->stepZ, actorPtr->alpha, actorPtr->beta, actorPtr->gamma, drawBodyPtr);
+                            drawWallPlanarShadow(actorPtr->worldX + actorPtr->stepX, actorPtr->worldY + actorPtr->stepY, actorPtr->worldZ + actorPtr->stepZ, actorPtr->alpha, actorPtr->beta, actorPtr->gamma, drawBodyPtr, actorPtr->room);
                         }
 
 
@@ -4172,7 +4666,9 @@ void AllRedraw(int flagFlip)
                         {
                             if (actorPtr->hotPointID != -1)
                             {
-                                getHotPoint(actorPtr->hotPointID, bodyPtr, &actorPtr->hotPoint);
+                                // the vertices in pointBuffer are the drawn model's: a custom model (TatouHd)
+                                // numbers them differently, so its own group pivots give the hand/foot point
+                                getHotPoint(actorPtr->hotPointID, drawBodyPtr, &actorPtr->hotPoint);
                             }
                         }
 
@@ -4221,6 +4717,11 @@ void AllRedraw(int flagFlip)
             }
         }
     }
+
+#ifdef AITD_HD_REPAINT_BUILD
+    // The camera's animated overlay (smoke, etc.) goes over every actor.
+    osystem_drawHDOverlay();
+#endif
 
     // Draw current-room search/scenario volumes after ordinary objects so the
     // wire boxes remain readable without changing normal F8-off frames.
@@ -5305,6 +5806,9 @@ void throwStoppedAt(int x, int z)
 
 void startGame(int startupFloor, int startupRoom, int allowSystemMenu)
 {
+#ifdef AITD_HD_REPAINT_BUILD
+    g_hdIntroPlaying = g_gameId == AITD1 && startupFloor == 7 && !allowSystemMenu;
+#endif
     LoadWorld();
     initVars();
 
@@ -5320,6 +5824,9 @@ void startGame(int startupFloor, int startupRoom, int allowSystemMenu)
     InitView();
 
     PlayWorld(allowSystemMenu, 1);
+#ifdef AITD_HD_REPAINT_BUILD
+    g_hdIntroPlaying = false;
+#endif
 
     /*freeScene();
 
@@ -5777,6 +6284,10 @@ int FitdMain(int argc, char* argv[])
 
     // Load remaster configuration early, before any systems that depend on it
     loadRemasterConfig();
+
+#ifdef AITD_HD_REPAINT_BUILD
+    hdLookupCommandLineCheck(argc, argv);
+#endif
 
 #ifndef AITD_UE4
     initBgfxGlue(argc, argv);

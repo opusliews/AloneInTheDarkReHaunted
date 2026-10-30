@@ -126,6 +126,13 @@ ModelAtlasData* getModelAtlas(int bodyNum);
 // Clear all cached atlas data (call on shutdown).
 void clearModelAtlases();
 
+#ifdef AITD_HD_REPAINT_BUILD
+// TatouHd: while true, atlases are read from (and auto-dumped to) models_custom/ instead of
+// atlases/, never from atlases.hda, and cached under their own keys. Set around the atlas
+// lookup of a custom model (hdCustomModel.cpp), whose pictures fit its own shape.
+extern bool g_modelAtlasCustomFolder;
+#endif
+
 // Dump a 4-way texture atlas (front/back/left/right quadrants) for the Tatou armadillo model.
 // The output file is written to <homePath>/atlases/tatou_<hqrName>_<bodyNum>.png
 // Returns true on success.

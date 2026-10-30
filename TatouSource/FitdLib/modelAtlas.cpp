@@ -24,6 +24,7 @@
 #define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION
 #include "../ThirdParty/bgfx.cmake/bimg/3rdparty/stb/stb_image.h"
+#include "atlasLog.h"
 
 extern "C" {
     extern char homePath[512];
@@ -429,12 +430,15 @@ static unsigned char* loadAtlasDataFromArchiveOrFile(const std::string& filePath
     size_t lastSlash = filePath.find_last_of("/\\");
     std::string fileName = (lastSlash != std::string::npos) ? filePath.substr(lastSlash + 1) : filePath;
 
+    ATLAS_LOG_STATE_DECL
     // First, try to load from atlases.hda archive
     if (HDArchive::open("atlases.hda"))
     {
+        ATLAS_LOG_STATE("atlases.hda has no entry")
         const HDArchiveEntry* entry = HDArchive::findEntry(fileName.c_str());
         if (entry)
         {
+            ATLAS_LOG_STATE("atlases.hda entry did not decode")
             size_t dataSize = 0;
             unsigned char* archiveData = HDArchive::readEntryAlloc(entry, &dataSize);
             HDArchive::close();
@@ -452,6 +456,7 @@ static unsigned char* loadAtlasDataFromArchiveOrFile(const std::string& filePath
                     // Note: uncomment for debug logging
                     // printf(RNDR_INFO "Loaded atlas from archive: %s (%dx%d)" CON_RESET "\n",
                     //     fileName.c_str(), w, h);
+                    ATLAS_LOG_ARCHIVE_HIT(fileName, w, h)
                     return pixels;
                 }
             }
@@ -464,6 +469,7 @@ static unsigned char* loadAtlasDataFromArchiveOrFile(const std::string& filePath
 
     // Fallback: load from individual file on filesystem
     unsigned char* data = stbi_load(filePath.c_str(), &w, &h, &channels, 4);
+    ATLAS_LOG_LOOSE(filePath, data, w, h, channels)
 
     // Note: uncomment for debug logging if loaded from file
     // if (data)
@@ -667,6 +673,7 @@ bool dumpModelAtlas(int bodyNum, sBody* pBody, const std::string& hqrName)
     ensureAtlasDir();
     std::string path = getAtlasPath(hqrName, bodyNum);
     int result = stbi_write_png(path.c_str(), atlasW, atlasH, 4, image.data(), atlasW * 4);
+    ATLAS_LOG_PNG_WRITE(path, result)
 
     if (result)
     {
@@ -1082,6 +1089,7 @@ bool dumpSphereAtlas(int bodyNum, sBody* pBody, const std::string& hqrName)
     ensureAtlasDir();
     std::string path = getSphereAtlasPath(hqrName, bodyNum);
     int result = stbi_write_png(path.c_str(), atlasW, atlasH, 4, image.data(), atlasW * 4);
+    ATLAS_LOG_PNG_WRITE(path, result)
 
     if (result)
     {
@@ -1178,6 +1186,7 @@ bool dumpPointAtlas(int bodyNum, sBody* pBody, const std::string& hqrName)
     ensureAtlasDir();
     std::string path = getPointAtlasPath(hqrName, bodyNum);
     int result = stbi_write_png(path.c_str(), atlasW, atlasH, 4, image.data(), atlasW * 4);
+    ATLAS_LOG_PNG_WRITE(path, result)
 
     if (result)
     {
@@ -1280,6 +1289,7 @@ bool dumpFlatPolyAtlas(int bodyNum, sBody* pBody, const std::string& hqrName)
     ensureAtlasDir();
     std::string path = getFlatPolyAtlasPath(hqrName, bodyNum);
     int result = stbi_write_png(path.c_str(), atlasW, atlasH, 4, image.data(), atlasW * 4);
+    ATLAS_LOG_PNG_WRITE(path, result)
 
     if (result)
     {
@@ -1375,6 +1385,7 @@ bool dumpRampAtlas(int bodyNum, sBody* pBody, const std::string& hqrName)
     ensureAtlasDir();
     std::string path = getRampAtlasPath(hqrName, bodyNum);
     int result = stbi_write_png(path.c_str(), atlasW, atlasH, 4, image.data(), atlasW * 4);
+    ATLAS_LOG_PNG_WRITE(path, result)
 
     if (result)
     {
@@ -1466,6 +1477,7 @@ bool dumpOtherAtlas(int bodyNum, sBody* pBody, const std::string& hqrName)
     ensureAtlasDir();
     std::string path = getOtherAtlasPath(hqrName, bodyNum);
     int result = stbi_write_png(path.c_str(), atlasW, atlasH, 4, image.data(), atlasW * 4);
+    ATLAS_LOG_PNG_WRITE(path, result)
 
     if (result)
     {
@@ -1677,6 +1689,7 @@ bool dumpTatouAtlas(int bodyNum, sBody* pBody, const std::string& hqrName)
     ensureAtlasDir();
     std::string path = getTatouAtlasPath(hqrName, bodyNum);
     int result = stbi_write_png(path.c_str(), atlasW, atlasH, 4, image.data(), atlasW * 4);
+    ATLAS_LOG_PNG_WRITE(path, result)
 
     if (result)
     {

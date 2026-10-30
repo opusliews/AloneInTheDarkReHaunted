@@ -108,6 +108,9 @@ void freeHDBackgroundPreviewData()
 // Cleanup HD background resources
 void cleanupHDBackgroundResources()
 {
+#ifdef AITD_HD_REPAINT_BUILD
+    setCurrentHDOverlay(nullptr);
+#endif
     PROTECTED_CALL({
         // Flush any deferred GC items before doing direct cleanup
         ResourceGC::flush();
@@ -232,9 +235,228 @@ void setCurrentAnimatedHDBackground(HDBackgroundInfo* bgInfo)
     }
 }
 
+#ifdef AITD_HD_REPAINT_BUILD
+// TatouHd: animated overlay of the current camera (backgrounds_custom/overlay_*),
+// drawn over the scene by osystem_drawHDOverlay. It plays on its own timer and fades
+// out over kOverlayFadeTime once setHDOverlayVisible(false) is called; or, synced, it
+// shows the frame given by setHDOverlayFrame (nothing for -1).
+static HDBackgroundInfo* g_currentHDOverlay = nullptr;
+static bool g_hdOverlayOwned = true;     // freed when replaced (false: the caller keeps it)
+static bool g_hdOverlaySynced = false;
+static bool g_hdOverlayHidden = false;   // synced, no frame to show
+static bgfx::TextureHandle g_hdOverlayTexture = BGFX_INVALID_HANDLE;
+static float g_hdOverlayAlpha = 1.0f;
+static bool g_hdOverlayVisible = true;
+static bool g_hdOverlayDirty = true;
+static const float kOverlayFadeTime = 0.5f;
+
+// alpha: the fade, multiplied into the frame's alpha
+static void uploadOverlayFrame(HDBackgroundInfo* o, bgfx::TextureHandle texture, float alpha)
+{
+    if (!o || !o->data || !bgfx::isValid(texture))
+        return;
+    const size_t pixels = (size_t)o->width * o->height;
+    const bgfx::Memory* mem = bgfx::alloc((uint32_t)(pixels * 4));
+    const int alphaScale = (int)(alpha * 256.0f);
+    for (size_t i = 0; i < pixels; i++)
+    {
+        const unsigned char* src = o->data + i * o->channels;
+        unsigned char* dst = mem->data + i * 4;
+        dst[0] = src[0];
+        dst[1] = src[o->channels > 1 ? 1 : 0];
+        dst[2] = src[o->channels > 2 ? 2 : 0];
+        dst[3] = (unsigned char)(((o->channels == 4 ? src[3] : 255) * alphaScale) >> 8);
+    }
+    bgfx::updateTexture2D(texture, 0, 0, 0, 0, (uint16_t)o->width, (uint16_t)o->height, mem);
+}
+
+static void uploadHDOverlayFrame()
+{
+    uploadOverlayFrame(g_currentHDOverlay, g_hdOverlayTexture, g_hdOverlayAlpha);
+}
+
+// TatouHd: background overlays of the current camera (backgrounds_custom/bgoverlay_*
+// and bgoverlay2_*), drawn over the custom background only: before the actors, and
+// again inside the masks that repaint the background over them
+// (osystem_drawHDBackgroundOverlay), layer 2 over layer 1. Each plays on its own timer.
+static HDBackgroundInfo* g_currentHDBgOverlay[kHDBackgroundOverlayLayers] = {};
+static bgfx::TextureHandle g_hdBgOverlayTexture[kHDBackgroundOverlayLayers] = { BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE };
+static bool g_hdBgOverlayDirty[kHDBackgroundOverlayLayers] = { true, true };
+
+void setCurrentHDBackgroundOverlay(int layer, HDBackgroundInfo* overlay)
+{
+    if (g_currentHDBgOverlay[layer] == overlay)
+        return;
+    if (g_currentHDBgOverlay[layer])
+        freeHDBackground(g_currentHDBgOverlay[layer]);
+    if (bgfx::isValid(g_hdBgOverlayTexture[layer]))
+    {
+        bgfx::destroy(g_hdBgOverlayTexture[layer]);
+        g_hdBgOverlayTexture[layer] = BGFX_INVALID_HANDLE;
+    }
+    g_currentHDBgOverlay[layer] = overlay;
+    g_hdBgOverlayDirty[layer] = true;
+    if (overlay && g_bgfxMainResourcesInitialized)
+        g_hdBgOverlayTexture[layer] = bgfx::createTexture2D((uint16_t)overlay->width, (uint16_t)overlay->height, false, 1,
+                                                            bgfx::TextureFormat::RGBA8,
+                                                            BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+}
+
+bool isHDBackgroundOverlayActive(int layer)
+{
+    return g_currentHDBgOverlay[layer] != nullptr;
+}
+
+bgfx::TextureHandle getHDBackgroundOverlayTexture(int layer)
+{
+    // only over the custom image, never over the standard background
+    if (!isCustomHDBackgroundShown() || !g_currentHDBgOverlay[layer])
+        return BGFX_INVALID_HANDLE;
+    return g_hdBgOverlayTexture[layer];
+}
+
+static void updateHDBackgroundOverlays(float deltaTime)
+{
+    for (int layer = 0; layer < kHDBackgroundOverlayLayers; layer++)
+    {
+        HDBackgroundInfo* o = g_currentHDBgOverlay[layer];
+        if (!o)
+            continue;
+        if (updateHDBackgroundAnimation(o, deltaTime))
+            g_hdBgOverlayDirty[layer] = true;
+        if (g_hdBgOverlayDirty[layer])
+        {
+            uploadOverlayFrame(o, g_hdBgOverlayTexture[layer], 1.0f);
+            g_hdBgOverlayDirty[layer] = false;
+        }
+    }
+}
+
+void setCurrentHDOverlay(HDBackgroundInfo* overlay, bool owned, bool synced)
+{
+    if (g_currentHDOverlay == overlay)
+        return;
+    if (g_currentHDOverlay && g_hdOverlayOwned)
+        freeHDBackground(g_currentHDOverlay);    // stops its frame decoder first
+    if (bgfx::isValid(g_hdOverlayTexture))
+    {
+        bgfx::destroy(g_hdOverlayTexture);
+        g_hdOverlayTexture = BGFX_INVALID_HANDLE;
+    }
+    g_currentHDOverlay = overlay;
+    g_hdOverlayOwned = owned;
+    g_hdOverlaySynced = synced;
+    g_hdOverlayHidden = synced;              // until the first setHDOverlayFrame
+    g_hdOverlayAlpha = 1.0f;
+    g_hdOverlayVisible = true;
+    g_hdOverlayDirty = true;
+    if (overlay && g_bgfxMainResourcesInitialized)
+        g_hdOverlayTexture = bgfx::createTexture2D((uint16_t)overlay->width, (uint16_t)overlay->height, false, 1,
+                                                   bgfx::TextureFormat::RGBA8,
+                                                   BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+}
+
+void setHDOverlayVisible(bool visible)
+{
+    if (visible && !g_hdOverlayVisible)
+    {
+        g_hdOverlayAlpha = 1.0f;
+        g_hdOverlayDirty = true;
+    }
+    g_hdOverlayVisible = visible;
+}
+
+void setHDOverlayFrame(int frame)
+{
+    if (!g_currentHDOverlay || !g_hdOverlaySynced)
+        return;
+    g_hdOverlayHidden = frame < 0;
+    if (frame >= 0 && setHDBackgroundFrame(g_currentHDOverlay, frame))
+        g_hdOverlayDirty = true;
+}
+
+bool isHDOverlayActive()
+{
+    return g_currentHDOverlay != nullptr;
+}
+
+bool isCustomHDBackgroundShown()
+{
+    return g_remasterConfig.graphics.enableHDBackgrounds && g_currentBackgroundIsHD && g_hdCustomBackgroundActive;
+}
+
+static bool g_hdCustomNoMasks = false;
+static std::vector<int> g_hdNoMaskNumbers;                  // empty: every mask
+static std::vector<std::pair<int, int>> g_hdHiddenMasks;    // (viewed room, mask) of listed ones
+
+void setHDCustomNoMasks(bool noMasks, const std::vector<int>& numbers)
+{
+    g_hdCustomNoMasks = noMasks;
+    g_hdNoMaskNumbers = numbers;
+    g_hdHiddenMasks.clear();
+}
+
+void noteHDCameraMask(int viewedRoom, int maskIdx, int number)
+{
+    for (int n : g_hdNoMaskNumbers)
+        if (n == number)
+            g_hdHiddenMasks.push_back({ viewedRoom, maskIdx });
+}
+
+bool areHDMasksHidden(int viewedRoom, int maskIdx)
+{
+    // with HD off the vanilla background is shown, and it needs its masks
+    if (!g_hdCustomNoMasks || !isCustomHDBackgroundShown())
+        return false;
+    if (g_hdNoMaskNumbers.empty())
+        return true;
+    for (const auto& m : g_hdHiddenMasks)
+        if (m.first == viewedRoom && m.second == maskIdx)
+            return true;
+    return false;
+}
+
+bgfx::TextureHandle getHDOverlayTexture()
+{
+    // the overlay belongs to the custom image: not over the standard background
+    if (!isCustomHDBackgroundShown())
+        return BGFX_INVALID_HANDLE;
+    if (!g_currentHDOverlay || g_hdOverlayAlpha <= 0.0f || g_hdOverlayHidden)
+        return BGFX_INVALID_HANDLE;
+    return g_hdOverlayTexture;
+}
+
+static void updateHDOverlay(float deltaTime)
+{
+    HDBackgroundInfo* o = g_currentHDOverlay;
+    if (!o)
+        return;
+    if (!g_hdOverlayVisible && g_hdOverlayAlpha > 0.0f)
+    {
+        g_hdOverlayAlpha -= deltaTime / kOverlayFadeTime;
+        if (g_hdOverlayAlpha < 0.0f)
+            g_hdOverlayAlpha = 0.0f;
+        g_hdOverlayDirty = true;
+    }
+    if (g_hdOverlayAlpha <= 0.0f || g_hdOverlayHidden)
+        return;
+    if (!g_hdOverlaySynced && updateHDBackgroundAnimation(o, deltaTime))
+        g_hdOverlayDirty = true;
+    if (g_hdOverlayDirty)
+    {
+        uploadHDOverlayFrame();
+        g_hdOverlayDirty = false;
+    }
+}
+#endif
+
 // Update animated HD background each frame
 void updateAnimatedHDBackground(float deltaTime)
 {
+#ifdef AITD_HD_REPAINT_BUILD
+    updateHDOverlay(deltaTime);
+    updateHDBackgroundOverlays(deltaTime);
+#endif
     // Safety check: ensure background is valid before accessing
     if (!g_currentAnimatedHDBackground || !g_currentAnimatedHDBackground->isAnimated)
     {

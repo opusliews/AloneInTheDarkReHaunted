@@ -55,6 +55,10 @@ public:
     // Apply all enabled effects and present to screen
     void endScene();
 
+    // "Maintain aspect ratio" (keepAspect.h): endScene() draws the scene at (x, y) in a
+    // window of windowWidth x windowHeight and clears the rest (the bars) black
+    void setLetterbox(int x, int y, int windowWidth, int windowHeight);
+
     // Get the main render target for game rendering
     bgfx::FrameBufferHandle getMainRenderTarget() const { return m_mainFB; }
     bgfx::TextureHandle getMainColorTexture() const { return m_mainColorTex; }
@@ -73,6 +77,7 @@ private:
     void renderSSGI();
     void renderFilmGrain();
     void renderFinalComposite();
+    void setCompositeView();
 
     // Render targets
     bgfx::FrameBufferHandle m_mainFB = BGFX_INVALID_HANDLE;          // Main scene (color + depth)
@@ -150,6 +155,11 @@ private:
     int m_width = 0;
     int m_height = 0;
     float m_time = 0.0f;
+    bool m_letterboxed = false;
+    int m_presentX = 0;
+    int m_presentY = 0;
+    int m_windowWidth = 0;
+    int m_windowHeight = 0;
 };
 
 // Global instance

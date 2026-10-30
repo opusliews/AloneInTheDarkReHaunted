@@ -149,6 +149,13 @@ std::array<polyVertex, NUM_MAX_TRANSPARENT_VERTICES> transparentVertices;
 // polygons, fainter still over HD backgrounds (user, 2026-10-18).
 #define NUM_MAX_GLOW_VERTICES 500*3
 #define GLOW_BANK 11
+// Since 2026-10-28 the glow is crimson (grey barely showed in DOS over grey floors, user): first
+// 0x51, then 0x50 (DOS adds the background's shade to the colour, so 0x51 overflowed into bank 6
+// as light blue dots). 0x50 is also the Talisman's (body 124), so the glow is now told by its model:
+// renderer.cpp sets g_drawingDropGlow for model 274. The colour test keeps the older glows.
+#define GLOW_COLOR 0x51
+#define IS_GLOW_COLOR(c) ((((c) & 0xF0) >> 4) == GLOW_BANK || (c) == GLOW_COLOR)
+extern bool g_drawingDropGlow;
 #define GLOW_BLEND_CLASSIC 0x4C4C4C4C   // 30 %
 #define GLOW_BLEND_HD 0x33333333        // 20 %
 std::array<polyVertex, NUM_MAX_GLOW_VERTICES> glowVertices;
@@ -164,6 +171,9 @@ int numUsedTransparentVertices = 0;
 int numUsedRampVertices = 0;
 int numUsedSpheres = 0;
 int numSpheresPrimitives = 0;  // Counter for which sphere primitive we're rendering (for atlas grid indexing)
+#ifdef AITD_HD_REPAINT_BUILD
+int g_mirroredSphereCells = 0;  // bit n: sphere atlas cell n is drawn mirrored (set per model by AffObjet)
+#endif
 int numPointPrimitives = 0;  // Counter for point-style primitive atlas cells
 int numUsedTexturedVertices = 0;
 bgfx::TextureHandle g_activeModelTexture = BGFX_INVALID_HANDLE;
@@ -2711,6 +2721,13 @@ void gameScreenToViewport(float* X, float* Y)
     (*Y) = g_screenHeight - (*Y);
 }
 
+#ifdef AITD_HD_REPAINT_BUILD
+// TatouHd: bgfx's scissor cache entry of the clip set by osystem_setClip (a bgfx
+// scissor applies to one draw only), so the background overlay drawn inside a
+// mask can reuse the mask's clip; UINT16_MAX: none.
+static uint16_t s_clipScissorCache = UINT16_MAX;
+#endif
+
 void osystem_setClip(float left, float top, float right, float bottom)
 {
     float x1 = left - 1;
@@ -2733,6 +2750,9 @@ void osystem_setClip(float left, float top, float right, float bottom)
     currentScissor[0] = std::max<float>(currentScissor[0], 0);
     currentScissor[1] = std::max<float>(currentScissor[1], 0);
 
+#ifdef AITD_HD_REPAINT_BUILD
+    s_clipScissorCache =
+#endif
     bgfx::setScissor(
         static_cast<uint16_t>(currentScissor[0]),
         static_cast<uint16_t>(currentScissor[1]),
@@ -2743,6 +2763,9 @@ void osystem_setClip(float left, float top, float right, float bottom)
 void osystem_clearClip()
 {
     bgfx::setScissor(0, 0, static_cast<uint16_t>(gameResolution[0]), static_cast<uint16_t>(gameResolution[1]));
+#ifdef AITD_HD_REPAINT_BUILD
+    s_clipScissorCache = UINT16_MAX;
+#endif
 }
 
 void osystem_stopFrame()
@@ -3284,7 +3307,7 @@ void osystem_fillPoly(float* buffer, int numPoint, unsigned char color, u8 polyT
     {
         int needed = (numPoint - 2) * 3;
         polyVertex* pVertex;
-        if (((color & 0xF0) >> 4) == GLOW_BANK)      // the randomizer's drop glow
+        if (g_drawingDropGlow || IS_GLOW_COLOR(color))      // the randomizer's drop glow
         {
             if (numUsedGlowVertices + needed > NUM_MAX_GLOW_VERTICES)
                 return;
@@ -3577,6 +3600,10 @@ void osystem_drawSphere(float X, float Y, float Z, u8 color, u8 material, float 
             float cellPixelY = (float)(cellY * CELL_SIZE_PIXELS);
             float cornerLocalU = (corners[mapping[i]].X - X) / (size * 1.2f) * 0.5f + 0.5f;
             float cornerLocalV = (corners[mapping[i]].Y - Y) / (size * 1.2f) * 0.5f + 0.5f;
+#ifdef AITD_HD_REPAINT_BUILD
+            if (cellIdx < 32 && (g_mirroredSphereCells >> cellIdx) & 1)
+                cornerLocalU = 1.f - cornerLocalU;
+#endif
             pVertex->U = (cellPixelX + cornerLocalU * CELL_SIZE_PIXELS) / (float)atlasData->sphereAtlasWidth;
             pVertex->V = (cellPixelY + cornerLocalV * CELL_SIZE_PIXELS) / (float)atlasData->sphereAtlasHeight;
         }
@@ -4004,6 +4031,10 @@ void osystem_drawMask(int roomId, int maskId)
 {
     if (g_gameId == TIMEGATE)
         return;
+#ifdef AITD_HD_REPAINT_BUILD
+    if (areHDMasksHidden(roomId, maskId))
+        return;
+#endif
 
     if (!bgfx::isValid(maskTextures[roomId][maskId].maskTexture))
         return;
@@ -4129,6 +4160,35 @@ void osystem_drawMask(int roomId, int maskId)
 
     applyHDBackgroundLightingUniforms();
     bgfx::submit(gameViewId, g_currentBackgroundIsHD ? getHDMaskBackgroundShader() : getMaskBackgroundShader());
+
+#ifdef AITD_HD_REPAINT_BUILD
+    // The mask has repainted the still over the actors: put the background overlays
+    // back on top of it, through the same mask and clip.
+    for (int layer = 0; layer < kHDBackgroundOverlayLayers; layer++)
+    {
+        const bgfx::TextureHandle bgOverlayTexture = getHDBackgroundOverlayTexture(layer);
+        if (!g_currentBackgroundIsHD || !bgfx::isValid(bgOverlayTexture))
+            continue;
+        static bgfx::ProgramHandle overlayProgram = BGFX_INVALID_HANDLE;
+        if (!bgfx::isValid(overlayProgram))
+            overlayProgram = loadBgfxProgram("maskBackground_vs", "maskHDOverlay_ps");
+        bgfx::setState(0 | BGFX_STATE_WRITE_RGB
+            | BGFX_STATE_DEPTH_TEST_ALWAYS
+            | BGFX_STATE_MSAA
+            | BGFX_STATE_PT_TRISTRIP
+            | BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_SRC_ALPHA, BGFX_STATE_BLEND_INV_SRC_ALPHA)
+        );
+        if (s_clipScissorCache != UINT16_MAX)
+            bgfx::setScissor(s_clipScissorCache);
+        bgfx::setVertexBuffer(0, &maskTransientBuffer);
+        bgfx::setTexture(2, backgroundTextureUniform, bgOverlayTexture);
+        bgfx::setTexture(1, paletteTextureUniform, g_paletteTexture);
+        bgfx::setTexture(0, maskTextureUniform, maskTextures[roomId][maskId].maskTexture);
+        bgfx::setUniform(fadeLevelUniform, fadeParams);
+        applyHDBackgroundLightingUniforms();
+        bgfx::submit(gameViewId, overlayProgram);
+    }
+#endif
 }
 
 // ============================================================================
@@ -4284,10 +4344,139 @@ void osystem_drawAnimatedGrassMask()
     bgfx::submit(gameViewId, getHDMaskBackgroundShader());
 }
 
+#ifdef AITD_HD_REPAINT_BUILD
+// TatouHd: the camera's animated overlay (backgrounds_custom/overlay_*), drawn
+// over the whole frame after the actors, with alpha, the fade level and the
+// lantern lighting of the HD background. Its frames match the custom still 1:1.
+void osystem_drawHDOverlay()
+{
+    const bgfx::TextureHandle overlayTexture = getHDOverlayTexture();
+    if (!bgfx::isValid(overlayTexture))
+        return;
+
+    // the actors are batched; submit them first so the overlay lands on top
+    osystem_flushPendingPrimitives();
+
+    static bgfx::UniformHandle backgroundTextureUniform = BGFX_INVALID_HANDLE;
+    if (!bgfx::isValid(backgroundTextureUniform))
+        backgroundTextureUniform = bgfx::createUniform("s_backgroundTexture", bgfx::UniformType::Sampler);
+    static bgfx::UniformHandle paletteTextureUniform = BGFX_INVALID_HANDLE;
+    if (!bgfx::isValid(paletteTextureUniform))
+        paletteTextureUniform = bgfx::createUniform("s_paletteTexture", bgfx::UniformType::Sampler);
+    static bgfx::UniformHandle fadeLevelUniform = BGFX_INVALID_HANDLE;
+    if (!bgfx::isValid(fadeLevelUniform))
+        fadeLevelUniform = bgfx::createUniform("u_fadeLevel", bgfx::UniformType::Vec4);
+
+    bgfx::setState(0 | BGFX_STATE_WRITE_RGB
+        | BGFX_STATE_DEPTH_TEST_ALWAYS
+        | BGFX_STATE_MSAA
+        | BGFX_STATE_PT_TRISTRIP
+        | BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_SRC_ALPHA, BGFX_STATE_BLEND_INV_SRC_ALPHA)
+    );
+
+    bgfx::VertexLayout layout;
+    layout
+        .begin()
+        .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
+        .add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
+        .end();
+
+    bgfx::TransientVertexBuffer transientBuffer;
+    bgfx::allocTransientVertexBuffer(&transientBuffer, 4, layout);
+
+    const float x1 = 0.f + g_shakeOffsetX, x2 = 320.f + g_shakeOffsetX;
+    const float y1 = 0.f + g_shakeOffsetY, y2 = 200.f + g_shakeOffsetY;
+    struct sOverlayVertice { float position[3]; float texcoord[2]; };
+    sOverlayVertice* pV = (sOverlayVertice*)transientBuffer.data;
+    pV[0] = { {x1, y2, 0.f}, {0.f, 1.f} };
+    pV[1] = { {x1, y1, 0.f}, {0.f, 0.f} };
+    pV[2] = { {x2, y2, 0.f}, {1.f, 1.f} };
+    pV[3] = { {x2, y1, 0.f}, {1.f, 0.f} };
+
+    bgfx::setVertexBuffer(0, &transientBuffer);
+    bgfx::setTexture(0, backgroundTextureUniform, overlayTexture);
+    bgfx::setTexture(1, paletteTextureUniform, g_paletteTexture);
+
+    float fadeParams[4] = { g_fadeLevel, 0.0f, 0.0f, 0.0f };
+    bgfx::setUniform(fadeLevelUniform, fadeParams);
+
+    applyHDBackgroundLightingUniforms();
+    bgfx::submit(gameViewId, getHDBackgroundShader());
+}
+
+static void drawHDBackgroundOverlayLayer(bgfx::TextureHandle overlayTexture)
+{
+    if (!bgfx::isValid(overlayTexture))
+        return;
+
+    static bgfx::UniformHandle backgroundTextureUniform = BGFX_INVALID_HANDLE;
+    if (!bgfx::isValid(backgroundTextureUniform))
+        backgroundTextureUniform = bgfx::createUniform("s_backgroundTexture", bgfx::UniformType::Sampler);
+    static bgfx::UniformHandle paletteTextureUniform = BGFX_INVALID_HANDLE;
+    if (!bgfx::isValid(paletteTextureUniform))
+        paletteTextureUniform = bgfx::createUniform("s_paletteTexture", bgfx::UniformType::Sampler);
+    static bgfx::UniformHandle fadeLevelUniform = BGFX_INVALID_HANDLE;
+    if (!bgfx::isValid(fadeLevelUniform))
+        fadeLevelUniform = bgfx::createUniform("u_fadeLevel", bgfx::UniformType::Vec4);
+
+    // no depth write: the background stays at the far plane for SSAO and the actors
+    bgfx::setState(0 | BGFX_STATE_WRITE_RGB
+        | BGFX_STATE_DEPTH_TEST_ALWAYS
+        | BGFX_STATE_MSAA
+        | BGFX_STATE_PT_TRISTRIP
+        | BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_SRC_ALPHA, BGFX_STATE_BLEND_INV_SRC_ALPHA)
+    );
+
+    bgfx::VertexLayout layout;
+    layout
+        .begin()
+        .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
+        .add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
+        .end();
+
+    bgfx::TransientVertexBuffer transientBuffer;
+    bgfx::allocTransientVertexBuffer(&transientBuffer, 4, layout);
+
+    const float x1 = 0.f + g_shakeOffsetX, x2 = 320.f + g_shakeOffsetX;
+    const float y1 = 0.f + g_shakeOffsetY, y2 = 200.f + g_shakeOffsetY;
+    struct sOverlayVertice { float position[3]; float texcoord[2]; };
+    sOverlayVertice* pV = (sOverlayVertice*)transientBuffer.data;
+    pV[0] = { {x1, y2, 0.f}, {0.f, 1.f} };
+    pV[1] = { {x1, y1, 0.f}, {0.f, 0.f} };
+    pV[2] = { {x2, y2, 0.f}, {1.f, 1.f} };
+    pV[3] = { {x2, y1, 0.f}, {1.f, 0.f} };
+
+    bgfx::setVertexBuffer(0, &transientBuffer);
+    bgfx::setTexture(0, backgroundTextureUniform, overlayTexture);
+    bgfx::setTexture(1, paletteTextureUniform, g_paletteTexture);
+
+    float fadeParams[4] = { g_fadeLevel, 0.0f, 0.0f, 0.0f };
+    bgfx::setUniform(fadeLevelUniform, fadeParams);
+
+    applyHDBackgroundLightingUniforms();
+    bgfx::submit(gameViewId, getHDBackgroundShader());
+}
+
+// TatouHd: the camera's background overlays (backgrounds_custom/bgoverlay_* and
+// bgoverlay2_*, in that order), drawn over the background before the actors, with
+// alpha, the fade level and the lantern lighting of the HD background. Frames of any
+// size are stretched over the screen, as the still is (e.g. 640x400 for a 1280x800
+// still). osystem_drawMask draws them again inside each mask.
+void osystem_drawHDBackgroundOverlay()
+{
+    for (int layer = 0; layer < kHDBackgroundOverlayLayers; layer++)
+        drawHDBackgroundOverlayLayer(getHDBackgroundOverlayTexture(layer));
+}
+#endif
+
 void osystem_drawMaskStencilPrepass(int roomId, int maskId)
 {
     if (g_gameId == TIMEGATE)
         return;
+#ifdef AITD_HD_REPAINT_BUILD
+    if (areHDMasksHidden(roomId, maskId))
+        return;
+#endif
 
 #ifdef FITD_DEBUGGER
     if (backgroundMode != backgroundModeEnum_2D)

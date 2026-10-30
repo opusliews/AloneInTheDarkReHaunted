@@ -9,6 +9,9 @@
 
 #include "common.h"
 #include "hdBackground.h"
+#ifdef AITD_HD_REPAINT_BUILD
+#include "hdCustomModel.h"
+#endif
 #include "hdArchive.h"
 #include "configRemaster.h"
 #include "consoleLog.h"
@@ -20,6 +23,10 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+#ifdef AITD_HD_REPAINT_BUILD
+#include <atomic>
+#include <thread>
+#endif
 
 #ifdef _WIN32
 #include <windows.h>
@@ -280,6 +287,37 @@ unsigned char* loadImageFromMemory(const unsigned char* buffer, int bufferSize, 
 #ifdef AITD_HD_REPAINT_BUILD
 bool g_hdCustomBackgroundActive = false;
 
+// TatouHd: a custom animation shows as soon as frame 0 is decoded; a worker thread
+// decodes the other frames in order. frames[0 .. ready-1] are final (a frame that
+// failed stays nullptr); playback holds at the last decoded frame until more arrive.
+// freeHDBackground cancels and joins the worker before freeing the frames.
+struct HDFrameStreamer
+{
+    std::thread worker;
+    std::atomic<bool> cancel{false};
+    std::atomic<int> ready{1};
+};
+
+static void streamCustomFrames(HDFrameStreamer* s, unsigned char** frames, std::vector<std::string> paths,
+                               int width, int height, int channels)
+{
+    for (size_t i = 1; i < paths.size() && !s->cancel.load(std::memory_order_relaxed); i++)
+    {
+        int w, h, c;
+        unsigned char* data = loadSingleFrame(paths[i].c_str(), &w, &h, &c);
+        if (!data)
+            printf(HDBG_WARN "Failed to load frame %zu" CON_RESET "\n", i);
+        else if (w != width || h != height || c != channels)
+        {
+            printf(HDBG_WARN "Frame %zu has inconsistent dimensions, skipping" CON_RESET "\n", i);
+            stbi_image_free(data);
+            data = nullptr;
+        }
+        frames[i] = data;
+        s->ready.store((int)i + 1, std::memory_order_release);
+    }
+}
+
 // TatouHd: backgrounds_custom/<name>_<idx>[_<suffix>].png overrides everything
 // else (animated, archive and backgrounds_hd/), at any resolution.
 static HDBackgroundInfo* loadCustomBackground(const char* backgroundName, int cameraIdx, const char* suffix)
@@ -325,6 +363,277 @@ static HDBackgroundInfo* loadCustomBackground(const char* backgroundName, int ca
     printf(HDBG_OK "Loaded custom background: %s (%dx%d, %d channels)\n", filePath, width, height, channels);
     return bgInfo;
 }
+
+// TatouHd: frame files of backgrounds_custom/anim_<name>_<idx>[_<suffix>]/,
+// sorted (empty if there is no such folder). dirPath receives the folder.
+static const char* s_customAnimPrefix = "anim";   // "overlay" / "bgoverlay" / "bgoverlay2" inside loadHDOverlay
+
+static std::vector<std::string> scanCustomAnimation(const char* backgroundName, int cameraIdx, const char* suffix,
+                                                    char* dirPath, size_t dirPathSize)
+{
+    if (suffix && suffix[0] != '\0')
+        snprintf(dirPath, dirPathSize, "backgrounds_custom/%s_%s_%03d_%s", s_customAnimPrefix, backgroundName, cameraIdx, suffix);
+    else
+        snprintf(dirPath, dirPathSize, "backgrounds_custom/%s_%s_%03d", s_customAnimPrefix, backgroundName, cameraIdx);
+    return scanAnimationDirectory(dirPath);
+}
+
+bool hdCustomBackgroundExists(const char* backgroundName, int cameraIdx, const char* suffix)
+{
+    char path[512];
+    if (!scanCustomAnimation(backgroundName, cameraIdx, suffix, path, sizeof(path)).empty())
+        return true;
+    if (suffix && suffix[0] != '\0')
+        snprintf(path, sizeof(path), "backgrounds_custom/%s_%03d_%s.png", backgroundName, cameraIdx, suffix);
+    else
+        snprintf(path, sizeof(path), "backgrounds_custom/%s_%03d.png", backgroundName, cameraIdx);
+    DWORD attr = GetFileAttributesA(path);
+    return attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+HDBackgroundInfo* loadHDOverlay(const char* backgroundName, int cameraIdx, const char* prefix)
+{
+    char dir[512];
+    s_customAnimPrefix = prefix;
+    HDBackgroundInfo* overlay = nullptr;
+    if (!scanCustomAnimation(backgroundName, cameraIdx, nullptr, dir, sizeof(dir)).empty())
+        overlay = loadHDBackground(backgroundName, cameraIdx, nullptr);   // the custom animation path
+    s_customAnimPrefix = "anim";
+    if (overlay && (!overlay->isCustom || !overlay->isAnimated))
+    {
+        freeHDBackground(overlay);
+        overlay = nullptr;
+    }
+    if (overlay && overlay->channels != 4)
+        printf(HDBG_WARN "%s: frames have no alpha channel, the overlay covers the whole %s" CON_RESET "\n", dir,
+               strncmp(prefix, "bgoverlay", 9) == 0 ? "background" : "scene");
+    return overlay;
+}
+
+// --hd-stream: play a background in real time (80 ms steps, as the game does) until
+// every frame is decoded, then load and free it 30 times after random delays, as
+// fast camera switches would while frames are still decoding.
+static void hdStreamTest(const char* arg, const char* name, int idx, const char* suffix)
+{
+    DWORD t0 = GetTickCount();
+    HDBackgroundInfo* bg = loadHDBackground(name, idx, suffix);
+    DWORD shown = GetTickCount() - t0;
+    if (!bg || !bg->isAnimated)
+    {
+        printf("HDSTREAM %s not an animation\n", arg);
+        if (bg)
+            freeHDBackground(bg);
+        return;
+    }
+    int steps = 0, holds = 0, backwards = 0, prev = 0;
+    while (!bg->allFramesLoaded && steps < 2000)
+    {
+        Sleep(80);
+        steps++;
+        bool moved = updateHDBackgroundAnimation(bg, 0.08f);
+        if (!moved)
+            holds++;
+        else if (bg->currentFrame < prev && bg->currentFrame != 0)
+            backwards++;
+        prev = bg->currentFrame;
+    }
+    DWORD all = GetTickCount() - t0;
+    printf("HDSTREAM %s first frame shown after %lu ms; all %d frames decoded after %lu ms "
+           "(%d steps of 80 ms, %d held waiting for a frame, %d out of order)\n",
+           arg, shown, bg->frameCount, all, steps, holds, backwards);
+    freeHDBackground(bg);
+    srand(12345);
+    DWORD worstFree = 0;
+    for (int n = 0; n < 30; n++)
+    {
+        HDBackgroundInfo* b = loadHDBackground(name, idx, suffix);
+        Sleep(rand() % 300);
+        if (b)
+            updateHDBackgroundAnimation(b, 0.08f);
+        DWORD f0 = GetTickCount();
+        freeHDBackground(b);
+        DWORD f = GetTickCount() - f0;
+        if (f > worstFree)
+            worstFree = f;
+    }
+    printf("HDSTREAM %s 30 load/free cycles during decoding: OK, slowest free %lu ms\n", arg, worstFree);
+}
+
+// --hd-once: play a background as a one-shot animation (the floor-hole break) in
+// 20 ms steps and print the frames shown, to check it stops on its last frame.
+static void hdOnceTest(const char* arg, const char* name, int idx, const char* suffix)
+{
+    printf("HDONCE %s exists=%s\n", arg, hdCustomBackgroundExists(name, idx, suffix) ? "yes" : "no");
+    HDBackgroundInfo* bg = loadHDBackground(name, idx, suffix);
+    if (!bg || !bg->isAnimated)
+    {
+        printf("HDONCE %s not an animation\n", arg);
+        if (bg)
+            freeHDBackground(bg);
+        return;
+    }
+    bg->playOnce = true;
+    std::string shown = "0";
+    int steps = 0;
+    for (; steps < 400 && !bg->finished; steps++)
+    {
+        Sleep(20);
+        if (updateHDBackgroundAnimation(bg, 0.02f))
+            shown += " " + std::to_string(bg->currentFrame);
+    }
+    for (int extra = 0; extra < 10; extra++)        // must stay on the last frame
+        if (updateHDBackgroundAnimation(bg, 0.08f))
+            shown += " " + std::to_string(bg->currentFrame);
+    printf("HDONCE %s frames=%d at %d ms shown: %s; finished=%s after %d steps of 20 ms, final frame %d\n", arg,
+           bg->frameCount, (int)(bg->frameTime * 1000.0f + 0.5f), shown.c_str(), bg->finished ? "yes" : "no",
+           steps, bg->currentFrame);
+    freeHDBackground(bg);
+}
+
+// --hd-loop / --hd-overlay / --hd-bgoverlay / --hd-bgoverlay2: play an animation (or
+// the camera overlay, or a background overlay) for three rounds of its frames once all are
+// decoded and print the frames shown, to check loop_from.txt.
+static void hdLoopTest(const char* arg, const char* name, int idx, const char* suffix, const char* overlay)
+{
+    HDBackgroundInfo* bg = overlay ? loadHDOverlay(name, idx, overlay) : loadHDBackground(name, idx, suffix);
+    if (!bg || !bg->isAnimated)
+    {
+        printf("HDLOOP %s not an animation\n", arg);
+        if (bg)
+            freeHDBackground(bg);
+        return;
+    }
+    for (int wait = 0; wait < 500 && bg->streamer && bg->streamer->ready.load() < bg->frameCount; wait++)
+        Sleep(20);
+    std::string shown = "0";
+    for (int step = 0; step < 3 * bg->frameCount; step++)
+        if (updateHDBackgroundAnimation(bg, bg->frameTime))
+            shown += " " + std::to_string(bg->currentFrame);
+    printf("HDLOOP %s%s%s frames=%d channels=%d size=%dx%d loopFrom=%d shown: %s\n", arg, overlay ? " " : "",
+           overlay ? overlay : "", bg->frameCount, bg->channels, bg->width, bg->height, bg->loopFrom + 1,
+           shown.c_str());
+    freeHDBackground(bg);
+}
+
+// TatouHd: --hd-lookup NAME:IDX[:SUFFIX] ... runs the camera background lookup
+// (loadHDBackground) for each argument, prints what was chosen and exits.
+// --hd-preload NAME:COUNT runs the per-floor preload instead; --hd-stream
+// NAME:IDX[:SUFFIX] tests background frame decoding (hdStreamTest); --hd-once
+// NAME:IDX:SUFFIX tests one-shot playback (hdOnceTest). Test aid only.
+void hdLookupCommandLineCheck(int argc, char* argv[])
+{
+    // Also a marker: the custom HD patchers find this string in the exe to tell
+    // our TatouHd builds (and their flavour) from other exes of the same name.
+#ifdef AITD_RANDOMIZER_EDITION
+    printf(HDBG_TAG "TatouHd build: flavor=edition\n");
+#else
+    printf(HDBG_TAG "TatouHd build: flavor=scenario\n");
+#endif
+    if (argc == 0 && __argv)           // WinMain passes no arguments
+    {
+        argc = __argc;
+        argv = __argv;
+    }
+    // --hd-model HQR:NUM...: check models_custom/<HQR>_<NUM>.bin (hdCustomModel.cpp) and exit
+    for (int i = 1; i < argc; i++)
+    {
+        if (strcmp(argv[i], "--hd-model") != 0)
+            continue;
+        for (int k = i + 1; k < argc; k++)
+        {
+            char hqr[32] = "";
+            int num = -1, v = 0, p = 0, g = 0;
+            if (sscanf_s(argv[k], "%31[^:]:%d", hqr, (unsigned)sizeof(hqr), &num) != 2)
+            {
+                printf("HDMODEL bad argument %s (expected HQR:NUM)\n", argv[k]);
+                continue;
+            }
+            const std::string why = hdCheckCustomModelFile(hqr, num, &v, &p, &g);
+            if (why.empty())
+                printf("HDMODEL %s:%d ok vertices=%d primitives=%d groups=%d\n", hqr, num, v, p, g);
+            else
+                printf("HDMODEL %s:%d refused: %s\n", hqr, num, why.c_str());
+        }
+        fflush(stdout);
+        exit(0);
+    }
+    int first = -1;
+    bool preload = false, stream = false, once = false, loop = false;
+    const char* overlay = nullptr;
+    for (int i = 1; i < argc; i++)
+    {
+        if (strcmp(argv[i], "--hd-lookup") == 0 || strcmp(argv[i], "--hd-preload") == 0 ||
+            strcmp(argv[i], "--hd-stream") == 0 || strcmp(argv[i], "--hd-once") == 0 ||
+            strcmp(argv[i], "--hd-loop") == 0 || strcmp(argv[i], "--hd-overlay") == 0 ||
+            strcmp(argv[i], "--hd-bgoverlay") == 0 || strcmp(argv[i], "--hd-bgoverlay2") == 0)
+        {
+            preload = strcmp(argv[i], "--hd-preload") == 0;
+            stream = strcmp(argv[i], "--hd-stream") == 0;
+            once = strcmp(argv[i], "--hd-once") == 0;
+            loop = strcmp(argv[i], "--hd-loop") == 0;
+            overlay = strcmp(argv[i], "--hd-overlay") == 0 ? "overlay" :
+                      strcmp(argv[i], "--hd-bgoverlay") == 0 ? "bgoverlay" :
+                      strcmp(argv[i], "--hd-bgoverlay2") == 0 ? "bgoverlay2" : nullptr;
+            first = i + 1;
+            break;
+        }
+    }
+    if (first < 0)
+        return;
+
+    g_remasterConfig.graphics.enableHDBackgrounds = true;
+    for (int i = first; i < argc; i++)
+    {
+        char name[64] = "", suffix[32] = "";
+        int idx = -1;
+        if (sscanf_s(argv[i], "%63[^:]:%d:%31s", name, (unsigned)sizeof(name), &idx, suffix, (unsigned)sizeof(suffix)) < 2)
+        {
+            printf("HDLOOKUP bad argument %s (expected NAME:IDX[:SUFFIX])\n", argv[i]);
+            continue;
+        }
+        if (preload)
+        {
+            preloadFloorHDBackgrounds(0, idx, name);
+            for (int c = 0; c < idx; c++)
+            {
+                HDBackgroundInfo* bg = getPreloadedHDBackground(c, nullptr);
+                printf("HDLOOKUP preload %s:%d cached=%s%s\n", name, c, bg ? "yes" : "no",
+                       bg && bg->isCustom ? " custom" : "");
+            }
+            clearPreloadedHDBackgrounds();
+            continue;
+        }
+        if (stream)
+        {
+            hdStreamTest(argv[i], name, idx, suffix[0] ? suffix : nullptr);
+            continue;
+        }
+        if (once)
+        {
+            hdOnceTest(argv[i], name, idx, suffix[0] ? suffix : nullptr);
+            continue;
+        }
+        if (loop || overlay)
+        {
+            hdLoopTest(argv[i], name, idx, suffix[0] ? suffix : nullptr, overlay);
+            continue;
+        }
+        DWORD t0 = GetTickCount();
+        HDBackgroundInfo* bg = loadHDBackground(name, idx, suffix[0] ? suffix : nullptr);
+        DWORD ms = GetTickCount() - t0;
+        if (!bg)
+            printf("HDLOOKUP %s none (vanilla 320x200) %lu ms\n", argv[i], ms);
+        else
+        {
+            printf("HDLOOKUP %s %s %s %dx%dx%d frames=%d loaded=%d %lu ms\n", argv[i],
+                   bg->isCustom ? "custom" : "rehaunted", bg->isAnimated ? "animated" : "still",
+                   bg->width, bg->height, bg->channels, bg->frameCount, bg->loadedFrameCount, ms);
+            freeHDBackground(bg);
+        }
+    }
+    fflush(stdout);
+    exit(0);
+}
 #endif
 
 // Try to load HD version of background
@@ -332,15 +641,17 @@ static HDBackgroundInfo* loadCustomBackground(const char* backgroundName, int ca
 HDBackgroundInfo* loadHDBackground(const char* backgroundName, int cameraIdx, const char* suffix)
 {
     TRAIL("loadHDBackground %s cam %d %s", backgroundName ? backgroundName : "?", cameraIdx, suffix ? suffix : "");
+#ifdef AITD_HD_REPAINT_BUILD
+    // TatouHd overlays load whatever the setting (they are only drawn while HD
+    // backgrounds are on), so a synced one is ready at the right frame when HD
+    // backgrounds are switched on mid-cycle.
+    if (!isHDBackgroundEnabled() && strcmp(s_customAnimPrefix, "overlay") != 0)
+#else
     if (!isHDBackgroundEnabled())
+#endif
     {
         return nullptr;
     }
-
-#ifdef AITD_HD_REPAINT_BUILD
-    if (HDBackgroundInfo* custom = loadCustomBackground(backgroundName, cameraIdx, suffix))
-        return custom;
-#endif
 
     // Try archive first, then fall back to filesystem
     ensureArchiveOpen();
@@ -364,12 +675,29 @@ HDBackgroundInfo* loadHDBackground(const char* backgroundName, int cameraIdx, co
              getHDBackgroundFolder(),
              (int)(strlen(animPrefix) - 1), animPrefix); // strip trailing '/'
 
+#ifdef AITD_HD_REPAINT_BUILD
+    // TatouHd: the custom animation folder comes first, then the custom still,
+    // then ReHaunted's own lookups. Custom frames load through ReHaunted's
+    // filesystem path below, pointed at backgrounds_custom/.
+    char customAnimDir[512];
+    const bool isCustomAnim = !scanCustomAnimation(backgroundName, cameraIdx, suffix,
+                                                   customAnimDir, sizeof(customAnimDir)).empty();
+    if (isCustomAnim)
+        snprintf(animDirPath, sizeof(animDirPath), "%s", customAnimDir);
+    else if (HDBackgroundInfo* custom = loadCustomBackground(backgroundName, cameraIdx, suffix))
+        return custom;
+#endif
+
     printf(HDBG_TAG "Looking for animated background: %s (name='%s', camera=%d)\n", 
            animDirPath, backgroundName, cameraIdx);
 
     // ---- Try animated background from archive ----
     std::vector<const HDArchiveEntry*> archiveAnimEntries;
+#ifdef AITD_HD_REPAINT_BUILD
+    if (HDArchive::isOpen() && !isCustomAnim)
+#else
     if (HDArchive::isOpen())
+#endif
     {
         archiveAnimEntries = HDArchive::listByPrefix(animPrefix);
     }
@@ -418,6 +746,10 @@ HDBackgroundInfo* loadHDBackground(const char* backgroundName, int cameraIdx, co
         size_t thirtyPercent = totalFrames * 3 / 10;
         size_t minFramesToLoad = (totalFrames < 10) ? totalFrames : 
                                   (thirtyPercent > 3 ? thirtyPercent : 3);
+#ifdef AITD_HD_REPAINT_BUILD
+        if (isCustomAnim)
+            minFramesToLoad = 1;            // the rest streams in (streamCustomFrames)
+#endif
 
         printf(HDBG_TAG "Pre-loading first %zu frames for immediate playback...\n", minFramesToLoad);
 
@@ -482,7 +814,11 @@ HDBackgroundInfo* loadHDBackground(const char* backgroundName, int cameraIdx, co
 
             bool allInitialFramesLoaded = (loadedFrames >= (int)totalFrames);
 
+#ifdef AITD_HD_REPAINT_BUILD
+            if (!allInitialFramesLoaded && !isCustomAnim)
+#else
             if (!allInitialFramesLoaded)
+#endif
             {
                 printf(HDBG_TAG "Loading remaining %zu frames...\n", totalFrames - loadedFrames);
 
@@ -552,6 +888,59 @@ HDBackgroundInfo* loadHDBackground(const char* backgroundName, int cameraIdx, co
             bgInfo->minFramesForPlayback = static_cast<int>(minFramesToLoad);
             bgInfo->loadedFrameCount = loadedFrames;
             bgInfo->allFramesLoaded = (loadedFrames >= static_cast<int>(totalFrames));
+#ifdef AITD_HD_REPAINT_BUILD
+            bgInfo->isCustom = isCustomAnim;
+            bgInfo->streamer = nullptr;
+            bgInfo->playOnce = false;
+            bgInfo->loopFrom = 0;
+            bgInfo->finished = false;
+            if (isCustomAnim)
+            {
+                // Optional frame_ms.txt in the folder: milliseconds per frame (default 80).
+                char msPath[600];
+                snprintf(msPath, sizeof(msPath), "%s/frame_ms.txt", animDirPath);
+                FILE* msFile = nullptr;
+                fopen_s(&msFile, msPath, "r");
+                if (msFile)
+                {
+                    int ms = 0;
+                    if (fscanf_s(msFile, "%d", &ms) == 1 && ms >= 10 && ms <= 2000)
+                        bgInfo->frameTime = ms / 1000.0f;
+                    else
+                        printf(HDBG_WARN "%s: expected a number of milliseconds (10-2000)" CON_RESET "\n", msPath);
+                    fclose(msFile);
+                }
+                // Optional loop_from.txt: the frame (1 = first) the loop restarts at;
+                // the frames before it play once (an intro).
+                char loopPath[600];
+                snprintf(loopPath, sizeof(loopPath), "%s/loop_from.txt", animDirPath);
+                FILE* loopFile = nullptr;
+                fopen_s(&loopFile, loopPath, "r");
+                if (loopFile)
+                {
+                    int from = 0;
+                    if (fscanf_s(loopFile, "%d", &from) == 1 && from >= 1 && from <= (int)totalFrames)
+                        bgInfo->loopFrom = from - 1;
+                    else
+                        printf(HDBG_WARN "%s: expected a frame number (1-%d)" CON_RESET "\n", loopPath, (int)totalFrames);
+                    fclose(loopFile);
+                }
+            }
+            if (isCustomAnim)
+                printf(HDBG_OK "Loaded custom animated background: %s (%d/%d frames, %dx%d, %d ms per frame, loop from frame %d)\n",
+                       animDirPath, loadedFrames, (int)totalFrames, width, height,
+                       (int)(bgInfo->frameTime * 1000.0f + 0.5f), bgInfo->loopFrom + 1);
+            if (isCustomAnim && !bgInfo->allFramesLoaded)
+            {
+                std::vector<std::string> paths;
+                for (const std::string& f : animFiles)
+                    paths.push_back(std::string(animDirPath) + "/" + f);
+                bgInfo->streamer = new HDFrameStreamer();
+                bgInfo->streamer->worker = std::thread(streamCustomFrames, bgInfo->streamer, frames,
+                                                       std::move(paths), width, height, channels);
+                printf(HDBG_TAG "Decoding %d more frames in the background\n", (int)totalFrames - loadedFrames);
+            }
+#endif
 
             if (bgInfo->allFramesLoaded)
             {
@@ -632,6 +1021,13 @@ HDBackgroundInfo* loadHDBackground(const char* backgroundName, int cameraIdx, co
             bgInfo->allFramesLoaded = true;
             bgInfo->minFramesForPlayback = 1;
             bgInfo->loadedFrameCount = 1;
+#ifdef AITD_HD_REPAINT_BUILD
+            bgInfo->isCustom = false;
+            bgInfo->streamer = nullptr;
+            bgInfo->playOnce = false;
+            bgInfo->loopFrom = 0;
+            bgInfo->finished = false;
+#endif
 
             printf(HDBG_OK "Loaded HD background from archive: %s (%dx%d, %d channels)\n",
                    entryName, width, height, channels);
@@ -705,6 +1101,13 @@ HDBackgroundInfo* loadHDBackground(const char* backgroundName, int cameraIdx, co
         bgInfo->allFramesLoaded = true;
         bgInfo->minFramesForPlayback = 1;
         bgInfo->loadedFrameCount = 1;
+#ifdef AITD_HD_REPAINT_BUILD
+        bgInfo->isCustom = false;
+        bgInfo->streamer = nullptr;
+        bgInfo->playOnce = false;
+        bgInfo->loopFrom = 0;
+        bgInfo->finished = false;
+#endif
 
         printf(HDBG_OK "Loaded HD background: %s (%dx%d, %d channels)\n", 
                filePath, width, height, channels);
@@ -720,6 +1123,17 @@ void freeHDBackground(HDBackgroundInfo* bgInfo)
 {
     if (bgInfo)
     {
+#ifdef AITD_HD_REPAINT_BUILD
+        // stop the frame decoder before the frames go (waits for at most one frame)
+        if (bgInfo->streamer)
+        {
+            bgInfo->streamer->cancel.store(true, std::memory_order_relaxed);
+            if (bgInfo->streamer->worker.joinable())
+                bgInfo->streamer->worker.join();
+            delete bgInfo->streamer;
+            bgInfo->streamer = nullptr;
+        }
+#endif
         if (bgInfo->isAnimated && bgInfo->frames)
         {
             // Free all animation frames
@@ -792,16 +1206,52 @@ bool updateHDBackgroundAnimation(HDBackgroundInfo* bgInfo, float deltaTime)
 
     if (bgInfo->frameTimer >= bgInfo->frameTime)
     {
+#ifdef AITD_HD_REPAINT_BUILD
+        // Custom animation still decoding: play what is decoded, hold at its end.
+        if (bgInfo->streamer)
+        {
+            const int ready = bgInfo->streamer->ready.load(std::memory_order_acquire);
+            bgInfo->loadedFrameCount = ready;
+            if (ready < bgInfo->frameCount)
+            {
+                int next = bgInfo->currentFrame + 1;
+                while (next < ready && bgInfo->frames[next] == nullptr)
+                    next++;
+                if (next >= ready)
+                    return false;                 // timer stays due: advance once it is decoded
+                bgInfo->frameTimer = 0.0f;
+                bgInfo->currentFrame = next;
+                bgInfo->data = bgInfo->frames[next];
+                return true;
+            }
+            bgInfo->allFramesLoaded = true;       // all decoded: the normal loop below
+        }
+#endif
         // Advance to next frame - reset timer cleanly to avoid drift
         bgInfo->frameTimer = 0.0f;
 
         int nextFrame = (bgInfo->currentFrame + 1) % bgInfo->frameCount;
+#ifdef AITD_HD_REPAINT_BUILD
+        // One-shot animation: hold the last frame once it has had its time.
+        if (bgInfo->playOnce && nextFrame == 0)
+        {
+            bgInfo->finished = true;
+            return false;
+        }
+        // loop_from.txt: the loop restarts after the intro frames.
+        if (nextFrame == 0)
+            nextFrame = bgInfo->loopFrom;
+#endif
 
         // Find next valid frame (skip null frames)
         int attempts = 0;
         while (bgInfo->frames[nextFrame] == nullptr && attempts < bgInfo->frameCount)
         {
             nextFrame = (nextFrame + 1) % bgInfo->frameCount;
+#ifdef AITD_HD_REPAINT_BUILD
+            if (nextFrame == 0)
+                nextFrame = bgInfo->loopFrom;
+#endif
             attempts++;
         }
 
@@ -816,6 +1266,28 @@ bool updateHDBackgroundAnimation(HDBackgroundInfo* bgInfo, float deltaTime)
 
     return false;
 }
+
+#ifdef AITD_HD_REPAINT_BUILD
+bool setHDBackgroundFrame(HDBackgroundInfo* bgInfo, int frame)
+{
+    if (!bgInfo || !bgInfo->isAnimated || !bgInfo->frames || bgInfo->frameCount <= 0)
+        return false;
+    int ready = bgInfo->frameCount;
+    if (bgInfo->streamer)
+        ready = bgInfo->streamer->ready.load(std::memory_order_acquire);
+    if (frame >= ready)
+        frame = ready - 1;              // not decoded yet: the nearest earlier frame
+    if (frame < 0)
+        frame = 0;
+    while (frame > 0 && bgInfo->frames[frame] == nullptr)
+        frame--;
+    if (frame == bgInfo->currentFrame || bgInfo->frames[frame] == nullptr)
+        return false;
+    bgInfo->currentFrame = frame;
+    bgInfo->data = bgInfo->frames[frame];
+    return true;
+}
+#endif
 
 // Get current frame data for rendering
 unsigned char* getHDBackgroundCurrentFrame(HDBackgroundInfo* bgInfo)
@@ -1013,8 +1485,19 @@ void preloadFloorHDBackgrounds(int floorNumber, int cameraCount, const char* bac
 
     for (int i = 0; i < cameraCount; i++)
     {
+#ifdef AITD_HD_REPAINT_BUILD
+        // TatouHd: a custom animation would be fully decoded here only to be
+        // freed again (animations are not cached), so skip it without loading.
+        char customAnimDir[512];
+        const bool customAnim = !scanCustomAnimation(backgroundName, i, nullptr, customAnimDir, sizeof(customAnimDir)).empty();
+        const bool customDarkAnim = !scanCustomAnimation(backgroundName, i, "DARK", customAnimDir, sizeof(customAnimDir)).empty();
+        if (customAnim)
+            skippedAnimated++;
+        HDBackgroundInfo* bg = customAnim ? nullptr : loadHDBackground(backgroundName, i, nullptr);
+#else
         // Load normal background
         HDBackgroundInfo* bg = loadHDBackground(backgroundName, i, nullptr);
+#endif
         if (bg)
         {
             // Only cache static backgrounds - animated ones have mutable state
@@ -1031,7 +1514,11 @@ void preloadFloorHDBackgrounds(int floorNumber, int cameraCount, const char* bac
         }
 
         // Also preload DARK variant if it exists (for AITD1 dark rooms)
+#ifdef AITD_HD_REPAINT_BUILD
+        HDBackgroundInfo* darkBg = customDarkAnim ? nullptr : loadHDBackground(backgroundName, i, "DARK");
+#else
         HDBackgroundInfo* darkBg = loadHDBackground(backgroundName, i, "DARK");
+#endif
         if (darkBg)
         {
             if (darkBg->isAnimated)

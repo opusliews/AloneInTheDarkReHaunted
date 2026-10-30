@@ -31,6 +31,7 @@
 #include "menuFade.h"
 #include "objectInspector.h"
 #include "scenarioTester.h"
+#include "keepAspect.h"
 
 #ifndef LANTERN_VERBOSE_LOGS
 #define LANTERN_VERBOSE_LOGS 0
@@ -139,6 +140,11 @@ extern "C" {
 
 int outputResolution[2] = { -1, -1 };
 
+// The window (backbuffer) and where the game rectangle sits in it. outputResolution is the
+// game rectangle's size: the whole window unless "maintain aspect ratio" is on (keepAspect.h).
+static int s_windowResolution[2] = { -1, -1 };
+static int s_gameOffset[2] = { 0, 0 };
+
 static uint32_t getMsaaResetFlags()
 {
     if (!g_remasterConfig.graphics.enableHDBackgrounds)
@@ -161,15 +167,19 @@ void StartFrame()
     int oldResolution[2];
     oldResolution[0] = outputResolution[0];
     oldResolution[1] = outputResolution[1];
+    int oldWindow[2] = { s_windowResolution[0], s_windowResolution[1] };
 
-    SDL_GetWindowSizeInPixels(gWindowBGFX, &outputResolution[0], &outputResolution[1]);
+    SDL_GetWindowSizeInPixels(gWindowBGFX, &s_windowResolution[0], &s_windowResolution[1]);
+    keepAspectRect(s_windowResolution[0], s_windowResolution[1], s_gameOffset[0], s_gameOffset[1],
+                   outputResolution[0], outputResolution[1]);
 
-    if ((oldResolution[0] != outputResolution[0]) || (oldResolution[1] != outputResolution[1]))
+    if ((oldResolution[0] != outputResolution[0]) || (oldResolution[1] != outputResolution[1])
+        || (oldWindow[0] != s_windowResolution[0]) || (oldWindow[1] != s_windowResolution[1]))
     {
         // Guard against zero dimensions (e.g. during minimize or window transitions)
-        if (outputResolution[0] > 0 && outputResolution[1] > 0)
+        if (s_windowResolution[0] > 0 && s_windowResolution[1] > 0)
         {
-            bgfx::reset(outputResolution[0], outputResolution[1], BGFX_RESET_VSYNC | getMsaaResetFlags());
+            bgfx::reset(s_windowResolution[0], s_windowResolution[1], BGFX_RESET_VSYNC | getMsaaResetFlags());
 
             // Resize post-processing framebuffers (always active for scene capture)
             if (g_postProcessing)
@@ -184,6 +194,23 @@ void StartFrame()
 
     // Pull the input from SDL2 instead
     ImGui_ImplSDL3_NewFrame();
+    if (keepAspectEnabled())
+    {
+        // ImGui lays out and draws in the game rectangle; the mouse is mapped into it (the
+        // SDL events in readKeyboard, and here the position the backend may poll itself)
+        ImGuiIO& io = ImGui::GetIO();
+        const float sx = io.DisplayFramebufferScale.x > 0.0f ? io.DisplayFramebufferScale.x : 1.0f;
+        const float sy = io.DisplayFramebufferScale.y > 0.0f ? io.DisplayFramebufferScale.y : 1.0f;
+        io.DisplaySize = ImVec2(outputResolution[0] / sx, outputResolution[1] / sy);
+        if (SDL_GetMouseFocus() == gWindowBGFX)
+        {
+            float mx, my;
+            SDL_GetMouseState(&mx, &my);
+            keepAspectMapMouse(mx, my);
+            io.AddMousePosEvent(mx, my);
+        }
+        imguiSetViewOffset(s_gameOffset[0], s_gameOffset[1]);
+    }
     imguiBeginFrame(0, 0, 0, 0, outputResolution[0], outputResolution[1], -1);
 
     // Menu bar is hidden for cleaner look - uncomment to show debug info
@@ -390,6 +417,9 @@ void EndFrame()
     // iteration or camera transitions) to avoid presenting background-only frames.
     if (g_postProcessing && (!g_playWorldActive || g_menuActive || g_3dFlushedThisFrame))
     {
+        // "maintain aspect ratio": the scene in the game rectangle, black bars around it
+        if (keepAspectEnabled())
+            g_postProcessing->setLetterbox(s_gameOffset[0], s_gameOffset[1], s_windowResolution[0], s_windowResolution[1]);
         g_postProcessing->endScene();
     }
 
@@ -583,11 +613,13 @@ int initBgfxGlue(int argc, char* argv[])
     // Initialize post-processing system (framebuffers will be created, but effects disabled by default)
     // Sync outputResolution with the initial window size so the first
     // StartFrame() does not trigger a redundant bgfx::reset().
-    outputResolution[0] = windowWidth;
-    outputResolution[1] = windowHeight;
+    s_windowResolution[0] = windowWidth;
+    s_windowResolution[1] = windowHeight;
+    keepAspectRect(windowWidth, windowHeight, s_gameOffset[0], s_gameOffset[1],
+                   outputResolution[0], outputResolution[1]);
 
     g_postProcessing = new PostProcessing();
-    g_postProcessing->init(windowWidth, windowHeight);
+    g_postProcessing->init(outputResolution[0], outputResolution[1]);
 
     printf(BGFX_OK "Post-processing system initialized (effects will activate when HD backgrounds are enabled)\n");
 

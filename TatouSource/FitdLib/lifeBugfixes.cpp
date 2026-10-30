@@ -72,6 +72,12 @@ bool gLife522Valid = false;
 
 char* patchLife522(char* data)
 {
+    // A LISTLIFE already patched by the randomizer (the same 340 bytes) is used as it is
+    if (readWord(data, 8) == 160 + sizeof(kLife522Insert) / 2 &&
+        readWord(data, 20) == 154 + sizeof(kLife522Insert) / 2 &&
+        std::memcmp(data + kLife522InsertAt, kLife522Insert, sizeof(kLife522Insert)) == 0)
+        return data;
+
     if (!gLife522Checked)
     {
         gLife522Checked = true;
@@ -95,6 +101,59 @@ char* patchLife522(char* data)
     }
     return gLife522Valid ? gLife522Patched.data() : data;
 }
+
+// LIFE 460 (worm, office route: waits for the player in room 5/4, then starts
+// the TRACK 20 chase) gets `test_col 1` in front of `trackmode 3 20`. Entering
+// the tunnels from the cellar first runs LIFE 458 case 1 `test_col 0`, which is
+// saved with the worm (world flag 0x20) when it unloads. The later chase then
+// has no wall collision, misses OBJ 219's stop zone and walks off forever
+// (Research/WormRunaway_2026-10-26.md). The if_egal jump (word at byte 10)
+// moves 7 -> 9 words to keep targeting endlife. A LISTLIFE already patched by
+// the randomizer (the same 32 bytes) is used as it is.
+constexpr int kLife460Length = 28;
+constexpr unsigned char kLife460Original[] = {
+    0x04, 0x00, 0x1F, 0x80, 0x01, 0x00, 0xFF, 0xFF, 0x04, 0x00, 0x07, 0x00, // if_egal obj_1.room #4 @26
+    0x0F, 0x00, 0x03, 0x00, 0x14, 0x00,                                     // trackmode 3 20
+    0x0D, 0x00, 0xC2, 0x00,                                                 // anim_repeat 194
+    0x1F, 0x00, 0xCD, 0x01,                                                 // life 461
+    0x0C, 0x00,                                                             // endlife
+};
+constexpr unsigned char kLife460Patched[] = {
+    0x04, 0x00, 0x1F, 0x80, 0x01, 0x00, 0xFF, 0xFF, 0x04, 0x00, 0x09, 0x00, // if_egal obj_1.room #4 @30
+    0x36, 0x00, 0x01, 0x00,                                                 // test_col 1
+    0x0F, 0x00, 0x03, 0x00, 0x14, 0x00,                                     // trackmode 3 20
+    0x0D, 0x00, 0xC2, 0x00,                                                 // anim_repeat 194
+    0x1F, 0x00, 0xCD, 0x01,                                                 // life 461
+    0x0C, 0x00,                                                             // endlife
+};
+static_assert(sizeof(kLife460Original) == kLife460Length, "LIFE 460 original length");
+static_assert(sizeof(kLife460Patched) == kLife460Length + 4, "LIFE 460 grows by test_col 1");
+constexpr int kLife460InsertAt = 12;
+
+std::vector<char> gLife460Patched;
+bool gLife460MismatchReported = false;
+
+char* patchLife460(char* data)
+{
+    // Bytes 12..15 tell the two layouts apart without reading past a 28-byte entry
+    if (std::memcmp(data + kLife460InsertAt, kLife460Patched + kLife460InsertAt, 4) == 0)
+    {
+        if (std::memcmp(data, kLife460Patched, sizeof(kLife460Patched)) == 0)
+            return data; // already patched (randomizer LISTLIFE)
+    }
+    else if (std::memcmp(data, kLife460Original, sizeof(kLife460Original)) == 0)
+    {
+        if (gLife460Patched.empty())
+            gLife460Patched.assign(kLife460Patched, kLife460Patched + sizeof(kLife460Patched));
+        return gLife460Patched.data();
+    }
+    if (!gLife460MismatchReported)
+    {
+        gLife460MismatchReported = true;
+        std::printf("[LIFE BUGFIX] LIFE 460 layout mismatch; worm chase wall-collision patch skipped\n");
+    }
+    return data;
+}
 }
 
 char* lifeBugfixPatchLife(int lifeNum, char* lifeData)
@@ -111,12 +170,16 @@ char* lifeBugfixPatchLife(int lifeNum, char* lifeData)
     {
         return patchLife522(lifeData);
     }
+    else if (lifeNum == 460)
+    {
+        return patchLife460(lifeData);
+    }
     return lifeData;
 }
 
 bool lifeBugfixForcesBytecode(int lifeNum)
 {
-    return g_gameId == AITD1 && (lifeNum == 550 || lifeNum == 522);
+    return g_gameId == AITD1 && (lifeNum == 550 || lifeNum == 522 || lifeNum == 460);
 }
 
 // TRACK 40 (scripted walk from the cellar 4/0 into the tunnels 5/3). The

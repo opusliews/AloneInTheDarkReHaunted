@@ -19,6 +19,8 @@
 #include "objectInspector.h"
 #include "scenarioTester.h"
 #include "remasterOptions.h"
+#include "modernControls.h"
+#include "keepAspect.h"
 
 extern float nearVal;
 extern float farVal;
@@ -150,6 +152,8 @@ void readKeyboard(void)
 
     while (SDL_PollEvent(&event)) {
 
+        // "maintain aspect ratio": mouse positions in the game rectangle, for ImGui and the game
+        keepAspectMapEvent(event);
         ImGui_ImplSDL3_ProcessEvent(&event);
 
         switch (event.type) {
@@ -166,9 +170,16 @@ void readKeyboard(void)
 #endif
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
             if (objectInspectorHandleMouseButton(event.button.button, event.button.x, event.button.y))
+            {
+                modernControlsUiMouseButton(event.button.button);
                 break;
-            // Double-click toggles fullscreen
-            if (!remasterOptionsIsOpen() && event.button.clicks == 2 && event.button.button == SDL_BUTTON_LEFT)
+            }
+            if (objectInspectorIsEnabled() && ImGui::GetIO().WantCaptureMouse)
+                modernControlsUiMouseButton(event.button.button);
+            // Double-click toggles fullscreen (not with the keyboard + mouse controls: left
+            // clicks are attacks and shots there)
+            if (!remasterOptionsIsOpen() && !modernControlsEnabled() && event.button.clicks == 2
+                && event.button.button == SDL_BUTTON_LEFT)
             {
                 toggleFullscreen();
             }
@@ -284,6 +295,9 @@ void readKeyboard(void)
                 key = 0x0F;
                 break;
             default:
+                // Keyboard + mouse controls (patcher option): their keys do nothing else
+                if (modernControlsOwnsKey(j))
+                    break;
                 // Check configurable key bindings
                 if (j == (int)getKeyBinding(ACTION_UP).keyboard || j == SDL_SCANCODE_W)
                     JoyD |= 1;
@@ -293,9 +307,11 @@ void readKeyboard(void)
                     JoyD |= 4;
                 if (j == (int)getKeyBinding(ACTION_RIGHT).keyboard || j == SDL_SCANCODE_D)
                     JoyD |= 8;
-                if (j == (int)getKeyBinding(ACTION_QUICK_TURN_LEFT).keyboard)
+                // with the keyboard + mouse controls, quick turn left is one turn per
+                // press (modernControls.cpp) and quick turn right is unused
+                if (j == (int)getKeyBinding(ACTION_QUICK_TURN_LEFT).keyboard && !modernControlsEnabled())
                     JoyD |= 0x10;
-                if (j == (int)getKeyBinding(ACTION_QUICK_TURN_RIGHT).keyboard)
+                if (j == (int)getKeyBinding(ACTION_QUICK_TURN_RIGHT).keyboard && !modernControlsEnabled())
                     JoyD |= 0x20;
                 if (j == (int)getKeyBinding(ACTION_RUN).keyboard)
                     JoyD |= 0x40;

@@ -8,6 +8,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 #include "common.h"
+#include "modernControls.h"
 #include "consoleLog.h"
 #include "fontTTF.h"
 #include "input.h"
@@ -266,6 +267,7 @@ void drawInventoryActions(int arg)
 
 void processInventory(void)
 {
+    WaterCutSuspend waterCutOff;    // item models are not cut at the cave waterline here
     TRAIL("inventory screen");
     int exitMenu = 0;
     int choice = 0;
@@ -734,6 +736,7 @@ void DrawFoundWindow(int menuState, int objectName, int zoomFactor)
 
 void FoundObjet(int objIdx, int param)
 {
+    WaterCutSuspend waterCutOff;    // the found item's model is not cut at the cave waterline
     TRAIL("FoundObjet obj %d param %d", objIdx, param);
     tWorldObject* objPtr;
 
@@ -855,6 +858,8 @@ void FoundObjet(int objIdx, int param)
         localKey = key;
         localJoyD = JoyD;
         localClick = Click;
+        if (modernControlsMessageClick())   // keyboard + mouse controls: as the action key
+            localClick = 1;
 
         if (!AntiRebond)
         {

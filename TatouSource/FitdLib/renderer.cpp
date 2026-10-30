@@ -11,6 +11,10 @@
 #include "consoleLog.h"
 #include "modelAtlas.h"
 #include "hdBackground.h"
+#ifdef AITD_HD_REPAINT_BUILD
+extern int g_mirroredSphereCells;  // rendererBGFX.cpp
+#endif
+#include "atlasLog.h"
 
 extern int numSpheresPrimitives;
 
@@ -75,6 +79,8 @@ static ModelAtlasData* s_currentAtlas = nullptr;
 static int s_currentPrimIndex = 0;
 static bool s_modelHasTexturedPrims = false;  // Track if model has textured primitives (type 9/10)
 static int s_currentBodyNum = -1;  // Track current rendering body number for special handling
+#define DROP_GLOW_BODY 274          // the AITD Randomizer's drop glow (Research/DropGlow.md)
+bool g_drawingDropGlow = false;     // set around its polygons' osystem_fillPoly (rendererBGFX.cpp)
 
 // Near-camera floating polygon clipping thresholds.
 // When a model is close to the camera, small detail polygons (eyes, nostrils)
@@ -141,6 +147,27 @@ int numOfBones;
 
 std::array<point3dStruct, NUM_MAX_POINT_IN_POINT_BUFFER> pointBuffer;
 s16 cameraSpaceBuffer[NUM_MAX_POINT_IN_POINT_BUFFER*3];
+
+// AITD1 cave water (renderer.h): the vertices of the current model that are below the
+// height limit. A primitive using one is not drawn, as in the original.
+int g_waterCutSuspended = 0;
+static bool s_vertexCut[NUM_MAX_POINT_IN_POINT_BUFFER];
+
+// Room-space y (grows downward) below which model vertices are not drawn
+static int modelHeightLimit()
+{
+    return (g_gameId == AITD1 && shakeVar1 != 0 && g_waterCutSuspended == 0) ? -600 : 10000;
+}
+
+static bool primUsesCutVertex(const sPrimitive* ptr)
+{
+    for (u16 point : ptr->m_points)
+    {
+        if (point < NUM_MAX_POINT_IN_POINT_BUFFER && s_vertexCut[point])
+            return true;
+    }
+    return false;
+}
 s16 bonesBuffer[NUM_MAX_BONES];
 
 bool boneRotateX;
@@ -469,6 +496,7 @@ int AnimNuage(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
 
     {
         s16* outPtr = cameraSpaceBuffer;
+        const int heightLimit = modelHeightLimit();
         for(int i=0;i<numOfPoints;i++)
         {
             float X = pointBuffer[i].x;
@@ -480,12 +508,14 @@ int AnimNuage(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
             Y += renderY;
             Z += renderZ;
 
+            s_vertexCut[i] = Y > heightLimit;
+
 #if defined(AITD_UE4)
             *(outPtr++) = (s16)X;
             *(outPtr++) = (s16)Y;
             *(outPtr++) = (s16)Z;
 #else
-            if(Y>10000) // height clamp
+            if(Y>heightLimit) // height clamp; the waterline while the cave water is on
             {
                 *(outPtr++) = -10000;
                 *(outPtr++) = -10000;
@@ -605,6 +635,7 @@ int RotateNuage(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
     }
 
     outPtr = renderPointList;
+    const int heightLimit = modelHeightLimit();
 
     for(int i=0; i<pBody->m_vertices.size(); i++)
     {
@@ -646,12 +677,15 @@ int RotateNuage(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
         Y += renderY;
         Z += renderZ;
 
+        if (i < NUM_MAX_POINT_IN_POINT_BUFFER)
+            s_vertexCut[i] = Y > heightLimit;
+
 #if defined(AITD_UE4)
         *(outPtr++) = X;
         *(outPtr++) = Y;
         *(outPtr++) = Z;
 #else
-        if(Y>10000) // height clamp
+        if(Y>heightLimit) // height clamp; the waterline while the cave water is on
         {
             *(outPtr++) = -10000;
             *(outPtr++) = -10000;
@@ -711,6 +745,8 @@ void primFunctionDefault(int primType,char** ptr,char** out)
 
 void processPrim_Line(int primType, sPrimitive* ptr, char** out)
 {
+    if (primUsesCutVertex(ptr))
+        return;
     primEntryStruct* pCurrentPrimEntry = &primTable[positionInPrimEntry];
 
     ASSERT(positionInPrimEntry < NUM_MAX_PRIM_ENTRY);
@@ -758,6 +794,8 @@ void processPrim_Line(int primType, sPrimitive* ptr, char** out)
 
 void processPrim_Poly(int primType, sPrimitive* ptr, char** out, int originalPrimIndex)
 {
+    if (primUsesCutVertex(ptr))     // below the waterline / height clamp (also for the lamp body)
+        return;
     primEntryStruct* pCurrentPrimEntry = &primTable[positionInPrimEntry];
 
     ASSERT(positionInPrimEntry < NUM_MAX_PRIM_ENTRY);
@@ -870,6 +908,8 @@ void processPrim_Poly(int primType, sPrimitive* ptr, char** out, int originalPri
 
 void processPrim_Point(primTypeEnum primType, sPrimitive* ptr, char** out)
 {
+    if (primUsesCutVertex(ptr))
+        return;
     primEntryStruct* pCurrentPrimEntry = &primTable[positionInPrimEntry];
 
     ASSERT(positionInPrimEntry < NUM_MAX_PRIM_ENTRY);
@@ -908,6 +948,8 @@ void processPrim_Point(primTypeEnum primType, sPrimitive* ptr, char** out)
 
 void processPrim_Sphere(int primType, sPrimitive* ptr, char** out)
 {
+    if (primUsesCutVertex(ptr))
+        return;
     primEntryStruct* pCurrentPrimEntry = &primTable[positionInPrimEntry];
 
     ASSERT(positionInPrimEntry < NUM_MAX_PRIM_ENTRY);
@@ -1034,16 +1076,23 @@ void renderPoly(primEntryStruct* pEntry) // poly
     // Multi-layered rendering: always render the flat base color first, then overlay
     // the atlas texture on top. Transparent atlas pixels naturally let the base show through.
 
+    // AITD Randomizer drop glow: the see-through polygons of model 274 (crimson 0x50 since
+    // 2026-10-28, the Talisman's colour too, so it is told by its model), or of the older glows
+    // (palette bank 11, colour 0x51; see IS_GLOW_COLOR in rendererBGFX.cpp).
+    const bool isDropGlow = pEntry->material == 2 && (s_currentBodyNum == DROP_GLOW_BODY
+        || ((pEntry->color & 0xF0) >> 4) == 11 || pEntry->color == 0x51);
+
     // Always render the base material layer first
+    g_drawingDropGlow = isDropGlow;
     osystem_fillPoly((float*)pEntry->vertices, pEntry->numOfVertices, pEntry->color, pEntry->material);
+    g_drawingDropGlow = false;
 
     if (!s_currentAtlas)
         return;
 
-    // AITD Randomizer drop glow (transparent, palette bank 11; see GLOW_BANK in rendererBGFX.cpp):
-    // the base layer only. Its model has no HD atlas, so an auto-dumped opaque one was drawn
-    // over it and the glow looked solid over HD backgrounds (user, 2026-10-18).
-    if (pEntry->material == 2 && ((pEntry->color & 0xF0) >> 4) == 11)
+    // The drop glow: the base layer only. Its model has no HD atlas, so an auto-dumped opaque one
+    // was drawn over it and the glow looked solid over HD backgrounds (user, 2026-10-18).
+    if (isDropGlow)
         return;
 
     // Overlay atlas texture on top of the base layer where UVs are available
@@ -1282,6 +1331,9 @@ void setCurrentBodyNum(int bodyNum, sBody* pBody, const std::string& hqrName)
     {
         s_currentAtlas = nullptr;
     }
+
+    ATLAS_LOG_BODY(bodyNum, hqrName, isHDBackgroundEnabled(), s_currentAtlas != nullptr,
+                   s_currentAtlas && bgfx::isValid(s_currentAtlas->texture), pBody)
 }
 
 void setCurrentAtlas(ModelAtlasData* atlas)
@@ -1629,6 +1681,21 @@ int AffObjet(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
 		// Track which body's primitives are now in primTable[] (for external code like lantern glow detection)
 		g_currentPrimTableBodyNum = s_currentBodyNum;
 
+#ifdef AITD_HD_REPAINT_BUILD
+		// The passengers' heads in the intro car (body 266, its 6th and 7th spheres) are
+		// left-facing portraits in ReHaunted's sphere atlas: mirror them while the car's
+		// nose (front wheel centre, vertex 2) is right of its tail (rear wheel, vertex 4).
+		const int INTRO_CAR_BODY = 266;
+		g_mirroredSphereCells = 0;
+		if (g_gameId == AITD1 && s_currentBodyNum == INTRO_CAR_BODY && pBody->m_vertices.size() > 4)
+		{
+			const float noseX = renderPointList[2 * 3];
+			const float tailX = renderPointList[4 * 3];
+			if (noseX > -10000.f && tailX > -10000.f && noseX > tailX)  // -10000: clipped
+				g_mirroredSphereCells = (1 << 5) | (1 << 6);
+		}
+#endif
+
 				// Render primitives in order
 		for(i=0;i<numOfPrimitiveToRender;i++)
 		{
@@ -1642,6 +1709,9 @@ int AffObjet(int x,int y,int z,int alpha,int beta,int gamma, sBody* pBody)
 		}
 
 		osystem_flushPendingPrimitives();
+#ifdef AITD_HD_REPAINT_BUILD
+		g_mirroredSphereCells = 0;
+#endif
 		// DON'T reset g_currentPrimTableBodyNum here! It needs to stay set so external
 		// code (like lantern glow) can check which body's primitives are in primTable[].
 		// We reset it when clearing primTable[] at the start of the next AffObjet() call.

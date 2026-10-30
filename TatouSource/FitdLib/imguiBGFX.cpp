@@ -126,6 +126,9 @@ static FontRangeMerge s_fontRangeMerge[] =
 static void* memAlloc(size_t _size, void* _userData);
 static void memFree(void* _ptr, void* _userData);
 
+// "Maintain aspect ratio" (keepAspect.h): where the game rectangle starts in the backbuffer
+static int s_viewOffset[2] = { 0, 0 };
+
 struct OcornutImguiContext
 {
 	void render(ImDrawData* _drawData)
@@ -133,6 +136,8 @@ struct OcornutImguiContext
 		const ImGuiIO& io = ImGui::GetIO();
 		const float width = io.DisplaySize.x;
 		const float height = io.DisplaySize.y;
+		const int ox = s_viewOffset[0];
+		const int oy = s_viewOffset[1];
 
 		bgfx::setViewName(m_viewId, "ImGui");
 		bgfx::setViewMode(m_viewId, bgfx::ViewMode::Sequential);
@@ -142,7 +147,7 @@ struct OcornutImguiContext
 			float ortho[16];
 			bx::mtxOrtho(ortho, 0.0f, width, height, 0.0f, 0.0f, 1000.0f, 0.0f, caps->homogeneousDepth);
 			bgfx::setViewTransform(m_viewId, NULL, ortho);
-			bgfx::setViewRect(m_viewId, 0, 0, uint16_t(width), uint16_t(height));
+			bgfx::setViewRect(m_viewId, uint16_t(ox), uint16_t(oy), uint16_t(width), uint16_t(height));
 		}
 
 		// Render command lists
@@ -210,6 +215,18 @@ struct OcornutImguiContext
 
 					const uint16_t xx = uint16_t(bx::max(cmd->ClipRect.x, 0.0f));
 					const uint16_t yy = uint16_t(bx::max(cmd->ClipRect.y, 0.0f));
+					if (ox || oy)
+					{
+						// letterboxed: the scissor is in backbuffer pixels, offset into the
+						// game rectangle and kept inside it
+						const float x1 = bx::max(bx::min(cmd->ClipRect.z, width), float(xx));
+						const float y1 = bx::max(bx::min(cmd->ClipRect.w, height), float(yy));
+						bgfx::setScissor(uint16_t(xx + ox), uint16_t(yy + oy)
+							, uint16_t(x1 - xx)
+							, uint16_t(y1 - yy)
+						);
+					}
+					else
 					bgfx::setScissor(xx, yy
 						, uint16_t(bx::min(cmd->ClipRect.z, 65535.0f) - xx)
 						, uint16_t(bx::min(cmd->ClipRect.w, 65535.0f) - yy)
@@ -559,6 +576,12 @@ void imguiRebuildFontTexture()
 void imguiBeginFrame(int32_t _mx, int32_t _my, uint8_t _button, int32_t _scroll, uint16_t _width, uint16_t _height, int _inputChar, bgfx::ViewId _viewId)
 {
 	s_ctx.beginFrame(_mx, _my, _button, _scroll, _width, _height, _inputChar, _viewId);
+}
+
+void imguiSetViewOffset(int _x, int _y)
+{
+	s_viewOffset[0] = _x;
+	s_viewOffset[1] = _y;
 }
 
 void imguiEndFrame()

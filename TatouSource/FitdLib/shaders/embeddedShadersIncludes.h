@@ -45,6 +45,11 @@ SHADER_DATA_FALLBACK
 #else
 SHADER_DATA_FALLBACK
 #endif
+#if __has_include("shaders/generated/spirv/maskHDOverlay_ps.sc.bin.h")
+#include "shaders/generated/spirv/maskHDOverlay_ps.sc.bin.h"
+#else
+SHADER_DATA_FALLBACK
+#endif
 #if __has_include("shaders/generated/spirv/ramp_vs.sc.bin.h")
 #include "shaders/generated/spirv/ramp_vs.sc.bin.h"
 #else
@@ -200,6 +205,11 @@ SHADER_DATA_FALLBACK
 #endif
 #if __has_include("shaders/generated/metal/maskHDBackground_ps.sc.bin.h")
 #include "shaders/generated/metal/maskHDBackground_ps.sc.bin.h"
+#else
+SHADER_DATA_FALLBACK
+#endif
+#if __has_include("shaders/generated/metal/maskHDOverlay_ps.sc.bin.h")
+#include "shaders/generated/metal/maskHDOverlay_ps.sc.bin.h"
 #else
 SHADER_DATA_FALLBACK
 #endif
@@ -361,6 +371,11 @@ SHADER_DATA_FALLBACK
 #else
 SHADER_DATA_FALLBACK
 #endif
+#if __has_include("shaders/generated/glsl/maskHDOverlay_ps.sc.bin.h")
+#include "shaders/generated/glsl/maskHDOverlay_ps.sc.bin.h"
+#else
+SHADER_DATA_FALLBACK
+#endif
 #if __has_include("shaders/generated/glsl/ramp_vs.sc.bin.h")
 #include "shaders/generated/glsl/ramp_vs.sc.bin.h"
 #else
@@ -516,6 +531,11 @@ SHADER_DATA_FALLBACK
 #endif
 #if __has_include("shaders/generated/dx11/maskHDBackground_ps.sc.bin.h")
 #include "shaders/generated/dx11/maskHDBackground_ps.sc.bin.h"
+#else
+SHADER_DATA_FALLBACK
+#endif
+#if __has_include("shaders/generated/dx11/maskHDOverlay_ps.sc.bin.h")
+#include "shaders/generated/dx11/maskHDOverlay_ps.sc.bin.h"
 #else
 SHADER_DATA_FALLBACK
 #endif

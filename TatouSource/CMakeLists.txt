@@ -16,9 +16,15 @@ if(AITD_HEAP_STRICT)
 endif()
 option(AITD_HD_REPAINT_BUILD
     "Build TatouHd: TatouScenario that loads 1:1 repainted HD backgrounds from backgrounds_custom/ with the vanilla masks" OFF)
-if(AITD_HD_REPAINT_BUILD)
+# With AITD_RANDOMIZER_EDITION as well, TatouHd is the randomizer edition plus
+# backgrounds_custom/ (no scenario tester, no embedded game data).
+if(AITD_HD_REPAINT_BUILD AND NOT AITD_RANDOMIZER_EDITION)
     set(AITD_SCENARIO_BUILD ON CACHE BOOL "" FORCE)
 endif()
+option(AITD_ATLAS_LOG
+    "Build TatouAtlasLog: TatouHd that logs model atlas lookups to atlas_log.txt next to the exe" OFF)
+option(AITD_WORM_LOG
+    "Build TatouWormLog: TatouHd that logs the tunnel worm (OBJ 218) to worm_log.txt next to the exe" OFF)
 option(AITD_RANDOMIZER_EDITION
     "Build the randomizer's ReHaunted edition: no embedded game data (reads the player's own files)" OFF)
 

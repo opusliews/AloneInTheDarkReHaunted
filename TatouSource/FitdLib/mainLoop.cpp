@@ -17,6 +17,8 @@
 #include "lanternLighting.h"
 #include "menuMouse.h"
 #include "scenarioTester.h"
+#include "modernControls.h"
+#include "wormLog.h"
 
 #ifndef WIN32
 #include <sys/time.h>
@@ -64,6 +66,12 @@ static void fixPlayerStuckInWall()
 
     tObject* player = &ListObjets[currentCameraTargetActor];
     if (player->indexInWorld < 0)
+        return;
+
+    // Only the player. Scripted camera targets stand where their LIFE put them:
+    // the ending's OBJ 288 starts on the doorstep, overlapping the steps, so
+    // warping it skipped the original first shot (CAMERA07_005).
+    if (player->indexInWorld != CVars[getCVarsIdx(WORLD_NUM_PERSO)])
         return;
 
     if (player->room < 0 || player->room >= (int)roomDataTable.size())
@@ -351,12 +359,15 @@ void PlayWorld(int allowSystemMenu, int deltaTime)
 
 		process_events();
 
-		// Auto-hide cursor during gameplay after inactivity
-		menuUpdateGameplayCursor();
+		// Auto-hide cursor during gameplay after inactivity (the keyboard + mouse
+		// controls keep it hidden instead)
+		if (!modernControlsEnabled())
+			menuUpdateGameplayCursor();
 
 		localKey = key;
 		localJoyD = JoyD;
 		localClick = Click;
+		modernControlsPlayWorld(allowSystemMenu, &localJoyD, &localClick);
 #ifdef AITD_HEAP_STRICT
 		{
 			static int s_key = 0, s_joy = 0, s_click = 0, s_health = -32768;
@@ -753,6 +764,8 @@ void PlayWorld(int allowSystemMenu, int deltaTime)
                 if (g_hotspotOverlayOpacity < 0.0f) g_hotspotOverlayOpacity = 0.0f;
             }
         }
+
+        WORM_LOG_FRAME()
 
         AllRedraw(flagRedraw);
 
