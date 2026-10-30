@@ -13,6 +13,7 @@
 #include "common.h"
 #include "consoleLog.h"
 #include "hybrid.h"
+#include "pickupPromptGuard.h"
 #include "hdBackground.h"
 #include "hdBackgroundRenderer.h"
 #include "nativeLife.h"
@@ -213,6 +214,7 @@ void put(int x, int y, int z, int room, int stage, int alpha, int beta, int gamm
 void drop(int worldIdx, int worldSource)
 {
     PutAtObjet(worldIdx, worldSource);
+    pickupPromptGuardOnDrop(worldIdx);
 }
 
 void fire(int fireAnim, int X, int Y, int Z, int hitForce, int nextAnim)

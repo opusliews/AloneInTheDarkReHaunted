@@ -20,6 +20,7 @@ extern void playMenuSound(const char* soundName);
 
 #include "hdBackground.h"
 #include "nativeLife.h"
+#include "pickupPromptGuard.h"
 #include "bytecodePatches.h"
 #include "bgAnimGrassMask.h"
 #include "hdBackgroundRenderer.h"
@@ -1315,6 +1316,8 @@ void LoadWorld(void)
     FILE* fHandle;
     int i;
     int choosePersoBackup;
+
+    pickupPromptGuardReset();
 
     {
         const unsigned char* embData = nullptr;
@@ -4258,6 +4261,7 @@ int CheckObjectCol(int actorIdx, ZVStruct* zvPtr)
             continue;
 
         ZVStruct* currentActorZv = &currentActor->zv;
+        bool intersects = false;
 
         if (currentActor->room != actorRoom)
         {
@@ -4267,23 +4271,29 @@ int CheckObjectCol(int actorIdx, ZVStruct* zvPtr)
 
             AdjustZV(&localZv, actorRoom, currentActor->room);
 
-            if (CubeIntersect(&localZv, currentActorZv))
-            {
-                currentProcessedActorPtr->COL[currentCollisionSlot++] = i;
-
-                if (currentCollisionSlot == 3)
-                    return(3);
-            }
+            intersects = CubeIntersect(&localZv, currentActorZv) != 0;
         }
         else
         {
-            if (CubeIntersect(zvPtr, currentActorZv))
-            {
-                currentProcessedActorPtr->COL[currentCollisionSlot++] = i;
+            intersects = CubeIntersect(zvPtr, currentActorZv) != 0;
+        }
 
-                if (currentCollisionSlot == 3)
-                    return(3);
-            }
+        // Foundable actors do not physically block the player. Keep freshly
+        // dropped or recently declined items out of the three collision slots
+        // until their prompt guard permits another interaction.
+        if (ListObjets[actorIdx].trackMode == 1 &&
+            (currentActor->objectType & AF_FOUNDABLE) &&
+            pickupPromptGuardShouldSuppressCollision(currentActor->indexInWorld, intersects))
+        {
+            continue;
+        }
+
+        if (intersects)
+        {
+            currentProcessedActorPtr->COL[currentCollisionSlot++] = i;
+
+            if (currentCollisionSlot == 3)
+                return(3);
         }
     }
 
@@ -4335,6 +4345,8 @@ void take(int objIdx)
 
     objPtr->room = -1;
     objPtr->stage = -1;
+
+    pickupPromptGuardOnObjectTaken(objIdx);
 }
 
 void Glisser(int flag)

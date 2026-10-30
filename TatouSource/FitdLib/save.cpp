@@ -8,6 +8,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 #include "common.h"
+#include "pickupPromptGuard.h"
 #include "zlib.h"
 #include <algorithm>
 #include <filesystem>
@@ -609,6 +610,8 @@ int loadSave(int saveNumber)
             }
         }
     }
+
+    pickupPromptGuardOnSaveLoaded(currentCameraTargetActor);
 
     NewNumCamera = var_E;
 
