@@ -226,6 +226,40 @@ int manageFall(int actorIdx, ZVStruct* zvPtr)
 	return(fallResult);
 }
 
+// Is a push of actor pushedIdx to zvPtr blocked by another actor? Same test
+// as CheckObjectCol(pushedIdx, zvPtr), except that takable items
+// (AF_FOUNDABLE) never block: an item dropped under or next to furniture
+// would otherwise make the furniture unpushable and the item unreachable.
+// Unlike CheckObjectCol it writes no COL list and has no 3-slot limit.
+static bool pushBlockedByActor(int pushedIdx, ZVStruct* zvPtr)
+{
+    const int pushedRoom = ListObjets[pushedIdx].room;
+
+    for (int i = 0; i < NUM_MAX_OBJECT; i++)
+    {
+        tObject* other = &ListObjets[i];
+
+        if (other->indexInWorld == -1 || i == pushedIdx)
+            continue;
+        if (other->objectType & AF_FOUNDABLE)
+            continue;
+
+        if (other->room != pushedRoom)
+        {
+            ZVStruct localZv;
+            CopyZV(zvPtr, &localZv);
+            AdjustZV(&localZv, pushedRoom, other->room);
+            if (CubeIntersect(&localZv, &other->zv))
+                return true;
+        }
+        else if (CubeIntersect(zvPtr, &other->zv))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 void GereAnim(void)
 {
 	int oldStepZ=0;
@@ -527,10 +561,14 @@ void GereAnim(void)
 					{
                         isPushPossible = false;
 					}
-                    else if (CheckObjectCol(collisionIndex, &localZv2))
+                    else
                     {
-                        // if no wall preventing to move object, check is there is a another object in the way
-                        isPushPossible = false;
+                        // if no wall preventing to move object, check is there is a another object in the way.
+                        // CheckObjectCol still runs for its vanilla side effect on the COL list
+                        // (scripts read COL); the decision ignores takable items (pushBlockedByActor).
+                        CheckObjectCol(collisionIndex, &localZv2);
+                        if (pushBlockedByActor(collisionIndex, &localZv2))
+                            isPushPossible = false;
                     }
 
 					if(!isPushPossible)
