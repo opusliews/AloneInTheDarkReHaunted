@@ -21,6 +21,7 @@ extern void playMenuSound(const char* soundName);
 #include "hdBackground.h"
 #include "nativeLife.h"
 #include "pickupPromptGuard.h"
+#include "lifeBugfixes.h"
 #include "bytecodePatches.h"
 #include "bgAnimGrassMask.h"
 #include "hdBackgroundRenderer.h"
@@ -297,7 +298,7 @@ void executeFoundLife(int objIdx)
 
     if (currentLifeNum != -1 && currentLifePtr != nullptr)
     {
-        lifeOffset = (int)((currentLifePtr - HQR_Get(listLife, currentActorLifeNum)) / 2);
+        lifeOffset = (int)((currentLifePtr - lifeBugfixPatchLife(currentActorLifeNum, HQR_Get(listLife, currentActorLifeNum))) / 2);
     }
     else
     {
@@ -361,7 +362,7 @@ void executeFoundLife(int objIdx)
     if (currentActorLifeNum != -1 && currentLifePtr != nullptr)
     {
         currentLifeNum = currentActorLifeNum;
-        currentLifePtr = HQR_Get(listLife, currentLifeNum) + lifeOffset * 2;
+        currentLifePtr = lifeBugfixPatchLife(currentLifeNum, HQR_Get(listLife, currentLifeNum)) + lifeOffset * 2;
     }
 }
 

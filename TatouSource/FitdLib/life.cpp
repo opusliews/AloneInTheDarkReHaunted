@@ -14,6 +14,7 @@
 #include "consoleLog.h"
 #include "hybrid.h"
 #include "pickupPromptGuard.h"
+#include "lifeBugfixes.h"
 #include "hdBackground.h"
 #include "hdBackgroundRenderer.h"
 #include "nativeLife.h"
@@ -776,13 +777,14 @@ void processLife(int lifeNum, bool callFoundLife)
 
     currentLifePtr = HQR_Get(listLife, lifeNum);
     assert(currentLifePtr);
+    currentLifePtr = lifeBugfixPatchLife(lifeNum, currentLifePtr);
 
     // Run native C replacement if one is registered (safe-filter mode).
     // Scripts not registered fall through to the bytecode interpreter + patch system.
     if (g_remasterConfig.debug.enableNativeLifeScripts)
     {
         NativeLifeFunc nativeFunc = getNativeLifeScript(lifeNum);
-        if (nativeFunc)
+        if (nativeFunc && !lifeBugfixForcesBytecode(lifeNum))
         {
             if (g_remasterConfig.debug.logLifeScripts)
                 printf(LIFE_TAG "[NATIVE] Actor %d | Life %d" CON_RESET "\n", currentProcessedActorIdx, lifeNum);

@@ -8,6 +8,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 #include "common.h"
+#include "lifeBugfixes.h"
 #include "consoleLog.h"
 #include "math.h"
 
@@ -353,7 +354,7 @@ void processTrack(void)
         }
     case 3: // track
         {
-            char* trackPtr = HQR_Get(listTrack,currentProcessedActorPtr->trackNumber);
+            char* trackPtr = trackBugfixPatchTrack(currentProcessedActorPtr->trackNumber, HQR_Get(listTrack,currentProcessedActorPtr->trackNumber));
             trackPtr+=currentProcessedActorPtr->positionInTrack * 2;
 
             s16 trackMacro = convertTrackMacro(*(s16*)trackPtr);
