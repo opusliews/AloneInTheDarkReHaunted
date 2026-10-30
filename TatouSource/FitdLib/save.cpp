@@ -9,6 +9,7 @@
 
 #include "common.h"
 #include "zlib.h"
+#include <algorithm>
 #include <filesystem>
 
 extern "C" {
@@ -188,8 +189,12 @@ int loadSave(int saveNumber)
     if(g_gameId == AITD1)
     {
         oldNumMaxObj = maxObjects;
-        maxObjects = 300; // fix for save engine..
-        ListWorldObjets.resize(maxObjects);
+        // The vanilla save format holds 300 records ("fix for save engine").
+        // A table raised past 300 (game data with more objects) keeps every
+        // record; the header holds the real count. Never shrink the table.
+        maxObjects = (std::max)(oldNumMaxObj, 300);
+        if ((int)ListWorldObjets.size() < maxObjects)
+            ListWorldObjets.resize(maxObjects);
     }
 
     for(i=0;i<maxObjects;i++)
@@ -717,8 +722,12 @@ int makeSaveFile(int entry)
     if(g_gameId == AITD1)
     {
         oldNumMaxObj = maxObjects;
-        maxObjects = 300; // fix for save engine..
-        ListWorldObjets.resize(maxObjects);
+        // The vanilla save format holds 300 records ("fix for save engine").
+        // A table raised past 300 (game data with more objects) keeps every
+        // record; the header holds the real count. Never shrink the table.
+        maxObjects = (std::max)(oldNumMaxObj, 300);
+        if ((int)ListWorldObjets.size() < maxObjects)
+            ListWorldObjets.resize(maxObjects);
     }
 
     for(i=0;i<maxObjects;i++)
