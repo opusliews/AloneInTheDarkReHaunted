@@ -1,7 +1,8 @@
 # Bug fixes for ReHaunted 2.4 (AITD1)
 
-This branch, `upstream-bug-fixes`, holds only general bug fixes for
-ReHaunted, one commit per fix, on top of upstream ReHaunted 2.4
+This branch, `upstream-bug-fixes`, holds general bug fixes for ReHaunted
+plus one optional quality-of-life change (marked QoL below), one commit
+each, on top of upstream ReHaunted 2.4
 (`3c230894`). They were developed while building the
 [Alone in the Dark Randomizer](https://github.com/opusliews/AITD-Randomizer-And-Rehaunted-HD-Patcher),
 whose ReHaunted edition is the fork's `main` branch. None of that
@@ -41,7 +42,7 @@ this branch's build.
 | HD mode | Save/load screen shows each slot's own thumbnail | `c4f2cdbe` | Runtime confirmed |
 | Audio | `sound_then` plays its queued second sample | `7052ad90` | Source/build verified |
 | Saving | Object tables larger than 300 are not truncated | `efe72b04` | Runtime confirmed |
-| Interaction | Takable items no longer block furniture pushes | `afbfd4cb` | Runtime confirmed |
+| QoL (optional) | Takable items no longer block furniture pushes (changes original behavior) | `afbfd4cb` | Runtime confirmed |
 | Interaction | Dropped items do not reopen their pickup prompt at once; 32-bit cooldown | `4cedd4a8` | Source/build verified |
 | Rendering | AITD1 cave water cuts models at the waterline instead of shaking | `436344cd` | Runtime confirmed |
 | Game scripts | Cellar/tunnel transition, TRACK 40/41, worm soft-locks | `efdedeff` | Runtime confirmed, except LIFE 550 @1694 |
@@ -107,11 +108,15 @@ that has been put down or thrown is an enhancement and is not included.
 This only matters for game data with more than 300 objects (the randomizer adds
 objects); vanilla saves keep the original 300-record layout.
 
-### Furniture pushes
+### Furniture pushes (quality of life, not a bug fix)
 
-An item under or beside a chest made the chest unpushable. The original DOS
-executable behaves the same way, so this is a quality-of-life change rather
-than a restoration.
+In the original DOS game, as in ReHaunted, a takable item lying under or
+beside a pushable object (for example a chest) blocks the push, so the
+furniture cannot move and the item can become unreachable. The original
+game never places an item there; it happens when the player drops one there,
+or with shuffled items (as in the randomizer). `afbfd4cb` lets pushes ignore
+takable items. Because it changes original behavior, it is optional: leave
+it out to keep the game as it was.
 
 ### Pickup prompt
 
