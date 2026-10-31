@@ -34,24 +34,24 @@ Validation labels used below:
 
 | Area | Fix | Commit | Validation |
 |---|---|---|---|
-| Stability | Blood and smoke particle heap overruns and effect cleanup | `c7650e96` | Diagnostic confirmed |
-| Saving | Do not truncate object tables raised above 300 entries | `09915be2` | Runtime confirmed |
-| Interaction | Dropped items no longer immediately reopen their pickup prompt | `09915be2` | Source/build verified |
-| QoL (optional) | Takable items no longer make furniture impossible to push (changes original behavior) | `09915be2` | Runtime confirmed |
-| Audio | Correct speed and pitch on 48 kHz and multichannel devices | `c696d0c6` | Runtime confirmed |
-| Audio | Stop looping samples on room/floor changes, loads, and menus | `0f453779` | Runtime confirmed |
-| Audio | Play the queued second sample for `sound_then` | `9c97bd44` | Source/build verified |
-| Lighting | Restore original dark-room behavior | `4c5d6253` | Runtime confirmed |
-| Lighting | Determine lamp glow from actual lamp state | `17d73d31`, `0a720bdb` | Runtime confirmed |
-| Rendering | Restore AITD1's cave-water model cut instead of screen shake | `06ba92f9` | Runtime confirmed |
-| Rendering | Hide the stale player shadow during the corridor fall | `7808c401` | Runtime confirmed |
-| Gameplay | Restore the Smoking Room smoke cycle and damage | `e94e7074` | Runtime confirmed |
-| Rendering | Reproduce the original Smoking Room particle motion | `d44802df` | Runtime confirmed |
-| Rendering | Cap pathological model atlases that freeze on arrows | `0c5c6f93` | Runtime confirmed |
-| HD mode | Apply the HD-background setting immediately | `78d05318` | Runtime confirmed |
-| HD mode | Refresh the save/load thumbnail for every slot | `ea305689` | Runtime confirmed |
-| Game scripts | Cellar/tunnel arrival, worm state, and TRACK fixes | `09915be2`, `06ba92f9` | Runtime confirmed |
-| Paths | Use the executable directory for scenario/edition assets | `84a788b0` | Runtime confirmed |
+| Stability | Blood and smoke particle heap overruns and effect cleanup | [`c7650e96`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/c7650e96c0422ef6b8cf309190a8efdf15818d5b) | Diagnostic confirmed |
+| Saving | Do not truncate object tables raised above 300 entries | [`09915be2`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/09915be2b4197135b0b90594db131d03b051e168) | Runtime confirmed |
+| Interaction | Dropped items no longer immediately reopen their pickup prompt | [`09915be2`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/09915be2b4197135b0b90594db131d03b051e168) | Source/build verified |
+| QoL (optional) | Takable items no longer make furniture impossible to push (changes original behavior) | [`09915be2`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/09915be2b4197135b0b90594db131d03b051e168) | Runtime confirmed |
+| Audio | Correct speed and pitch on 48 kHz and multichannel devices | [`c696d0c6`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/c696d0c6c6a7ca030be8257051cdbf612a8532c6) | Runtime confirmed |
+| Audio | Stop looping samples on room/floor changes, loads, and menus | [`0f453779`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/0f4537790ec4d1a67c5d147d80660388a2074399) | Runtime confirmed |
+| Audio | Play the queued second sample for `sound_then` | [`9c97bd44`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/9c97bd446678dbdbd02fe968b6de470ee1ec5073) | Source/build verified |
+| Lighting | Restore original dark-room behavior | [`4c5d6253`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/4c5d625360b468814eb54d0347ed7e335e54f909) | Runtime confirmed |
+| Lighting | Determine lamp glow from actual lamp state | [`17d73d31`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/17d73d31f1c2f22a5febea29a171a0973b1ce6f3), [`0a720bdb`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/0a720bdbb30ccde7d22faff2d5a5dd7c261da84b) | Runtime confirmed |
+| Rendering | Restore AITD1's cave-water model cut instead of screen shake | [`06ba92f9`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/06ba92f9e497cef78c8b65be5dcb7038ffe083bd) | Runtime confirmed |
+| Rendering | Hide the stale player shadow during the corridor fall | [`7808c401`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/7808c401d264212447f92a16f54858a84ee2d827) | Runtime confirmed |
+| Gameplay | Restore the Smoking Room smoke cycle and damage | [`e94e7074`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/e94e7074e5bbf495b7d8c92f6338fd16be74d8f9) | Runtime confirmed |
+| Rendering | Reproduce the original Smoking Room particle motion | [`d44802df`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/d44802df9bbf92d703d06b859ab903a60f3c04fa) | Runtime confirmed |
+| Rendering | Cap pathological model atlases that freeze on arrows | [`0c5c6f93`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/0c5c6f93aeca10c4d8078de7dc10cf0e8bdf0380) | Runtime confirmed |
+| HD mode | Apply the HD-background setting immediately | [`78d05318`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/78d05318691891f0545b4d5ebd6fdad32358f519) | Runtime confirmed |
+| HD mode | Refresh the save/load thumbnail for every slot | [`ea305689`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/ea30568935e4770b0d7a5a1a623e5df6f88e1626) | Runtime confirmed |
+| Game scripts | Cellar/tunnel arrival, worm state, and TRACK fixes | [`09915be2`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/09915be2b4197135b0b90594db131d03b051e168), [`06ba92f9`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/06ba92f9e497cef78c8b65be5dcb7038ffe083bd) | Runtime confirmed |
+| Paths | Use the executable directory for scenario/edition assets | [`84a788b0`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/84a788b0ba5064b7d5c2d6e4d81c96692b2cb983) | Runtime confirmed |
 
 ## Stability and data integrity
 
