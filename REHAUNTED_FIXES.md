@@ -28,24 +28,24 @@ this branch's build.
 
 | Area | Fix | Commit | Validation |
 |---|---|---|---|
-| Audio | Looping samples stop on room/floor change, save load and leaving gameplay | `bbb0e68e` | Runtime confirmed |
-| Lighting | Dark rooms: `lightOff` drives a black mask with the original light circle | `6b60de2b` | Runtime confirmed |
-| Lighting | Lamp glow follows var 7 (lit), not the lamp's found body | `79ea7695` | Runtime confirmed |
-| Lighting | Only the oil lamp (OBJ 13) is a lantern | `d5b847b7` | Runtime confirmed |
-| Stability | Heap overrun in blood and smoke effects; effect cleanup | `68c8faf7` | Diagnostic confirmed |
-| Audio | Slow, low-pitched audio on devices not running at 44.1 kHz | `49d54cc4` | Runtime confirmed |
-| Rendering | Player shadow left above the collapsed corridor floor | `dd2d068e` | Runtime confirmed |
-| Gameplay | Smoking Room smoke: the original cycle and its damage | `74f325b1` | Runtime confirmed |
-| Rendering | Smoking Room smoke drawn as the original engine does | `a8035980` | Runtime confirmed |
-| HD mode | HD backgrounds follow the setting at once | `56e5707e` | Runtime confirmed |
-| Rendering | Model atlases capped (freeze when an arrow is shown) | `1e47e191` | Runtime confirmed |
-| HD mode | Save/load screen shows each slot's own thumbnail | `c4f2cdbe` | Runtime confirmed |
-| Audio | `sound_then` plays its queued second sample | `7052ad90` | Source/build verified |
-| Saving | Object tables larger than 300 are not truncated | `efe72b04` | Runtime confirmed |
-| QoL (optional) | Takable items no longer block furniture pushes (changes original behavior) | `afbfd4cb` | Runtime confirmed |
-| Interaction | Dropped items do not reopen their pickup prompt at once; 32-bit cooldown | `4cedd4a8` | Source/build verified |
-| Rendering | AITD1 cave water cuts models at the waterline instead of shaking | `436344cd` | Runtime confirmed |
-| Game scripts | Cellar/tunnel transition, TRACK 40/41, worm soft-locks | `efdedeff` | Runtime confirmed, except LIFE 550 @1694 |
+| Audio | Looping samples stop on room/floor change, save load and leaving gameplay | [`bbb0e68e`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/bbb0e68e4e4e369df1e42b89f588ae194ff5fdee) | Runtime confirmed |
+| Lighting | Dark rooms: `lightOff` drives a black mask with the original light circle | [`6b60de2b`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/6b60de2b02ce7bc1f6d80f8017cfde259ad8599b) | Runtime confirmed |
+| Lighting | Lamp glow follows var 7 (lit), not the lamp's found body | [`79ea7695`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/79ea76950111c7715a47e30ed9e5eacc717a2cac) | Runtime confirmed |
+| Lighting | Only the oil lamp (OBJ 13) is a lantern | [`d5b847b7`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/d5b847b789bbd7a096a10b11a4abbad900143614) | Runtime confirmed |
+| Stability | Heap overrun in blood and smoke effects; effect cleanup | [`68c8faf7`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/68c8faf751bcb9eb8756c5357471b442d4a8a8ed) | Diagnostic confirmed |
+| Audio | Slow, low-pitched audio on devices not running at 44.1 kHz | [`49d54cc4`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/49d54cc42faef2c80b33ec5d45d60c5eace96f0e) | Runtime confirmed |
+| Rendering | Player shadow left above the collapsed corridor floor | [`dd2d068e`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/dd2d068eadcf2ab32f84a5a7401bf56610ba7793) | Runtime confirmed |
+| Gameplay | Smoking Room smoke: the original cycle and its damage | [`74f325b1`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/74f325b113872152663f04ae3f4b05573735c24d) | Runtime confirmed |
+| Rendering | Smoking Room smoke drawn as the original engine does | [`a8035980`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/a8035980c3e9e21a37312cdf2936d7b833d820e0) | Runtime confirmed |
+| HD mode | HD backgrounds follow the setting at once | [`56e5707e`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/56e5707e8e74678c9ec68989b42804d09d500c0f) | Runtime confirmed |
+| Rendering | Model atlases capped (freeze when an arrow is shown) | [`1e47e191`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/1e47e1912dc151299f0a0b78074af04790ff0346) | Runtime confirmed |
+| HD mode | Save/load screen shows each slot's own thumbnail | [`c4f2cdbe`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/c4f2cdbe57827e84484c0c9c640ad78afa71cf35) | Runtime confirmed |
+| Audio | `sound_then` plays its queued second sample | [`7052ad90`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/7052ad9027f0c5663ec3af1b4a105e26925e6eb0) | Source/build verified |
+| Saving | Object tables larger than 300 are not truncated | [`efe72b04`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/efe72b043b92e153c20be6d6044ffb0314acdeca) | Runtime confirmed |
+| QoL (optional) | Takable items no longer block furniture pushes (changes original behavior) | [`afbfd4cb`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/afbfd4cb9432f5a96e61b151ce5bc7ec5f14cc1b) | Runtime confirmed |
+| Interaction | Dropped items do not reopen their pickup prompt at once; 32-bit cooldown | [`4cedd4a8`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/4cedd4a8386e1c37b4455c21046fa80aac81d545) | Source/build verified |
+| Rendering | AITD1 cave water cuts models at the waterline instead of shaking | [`436344cd`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/436344cd01b45e8c3072a1de4c2f5fd2d5bc6b07) | Runtime confirmed |
+| Game scripts | Cellar/tunnel transition, TRACK 40/41, worm soft-locks | [`efdedeff`](https://github.com/opusliews/AloneInTheDarkReHaunted/commit/efdedeffdea75a34b89ea24330c2605855ae150b) | Runtime confirmed, except LIFE 550 @1694 |
 
 `7cb14f5d` only changes comments.
 
