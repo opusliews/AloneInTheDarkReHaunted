@@ -5800,6 +5800,7 @@ void throwStoppedAt(int x, int z)
 
     ListWorldObjets[currentProcessedActorPtr->indexInWorld].foundFlag |= 0x4000;
     ListWorldObjets[currentProcessedActorPtr->indexInWorld].foundFlag &= 0xEFFF;
+    pickupPromptGuardOnThrowLanded(currentProcessedActorPtr->indexInWorld);
 
     addActorToBgInscrust(currentProcessedActorIdx);
 }

@@ -9,13 +9,16 @@
 
 namespace
 {
+// The timer advances once per rendered frame, and the renderer is capped at 60 fps.
 constexpr u32 kPromptCooldownTicks = 300; // Original behavior: about 5 seconds.
+constexpr u32 kThrowLandedTicks = 360;    // Thrown items: 6 seconds after landing.
 
 struct PickupPromptState
 {
     bool requireSeparation = false;
     bool cooldownActive = false;
     u32 cooldownStartedAt = 0;
+    u32 cooldownTicks = kPromptCooldownTicks;
 };
 
 std::unordered_map<int, PickupPromptState> g_pickupPromptStates;
@@ -26,7 +29,7 @@ bool updateCooldown(PickupPromptState& state)
         return false;
 
     // Unsigned subtraction intentionally handles the engine timer wrapping.
-    if (timer - state.cooldownStartedAt < kPromptCooldownTicks)
+    if (timer - state.cooldownStartedAt < state.cooldownTicks)
         return true;
 
     state.cooldownActive = false;
@@ -126,6 +129,19 @@ void pickupPromptGuardOnPromptDeclined(int objectId, bool requireSeparation)
     state.requireSeparation = requireSeparation;
     state.cooldownActive = true;
     state.cooldownStartedAt = timer;
+    state.cooldownTicks = kPromptCooldownTicks;
+}
+
+void pickupPromptGuardOnThrowLanded(int objectId)
+{
+    if (objectId < 0)
+        return;
+
+    PickupPromptState& state = g_pickupPromptStates[objectId];
+    state.requireSeparation = false;
+    state.cooldownActive = true;
+    state.cooldownStartedAt = timer;
+    state.cooldownTicks = kThrowLandedTicks;
 }
 
 void pickupPromptGuardOnObjectTaken(int objectId)

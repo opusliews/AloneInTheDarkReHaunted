@@ -26,6 +26,9 @@ bool pickupPromptGuardShouldSuppressCollision(int objectId, bool intersects);
 // that field is signed 16-bit game data and is also used by TRACK scripts.
 bool pickupPromptGuardIsCoolingDown(int objectId);
 void pickupPromptGuardOnPromptDeclined(int objectId, bool requireSeparation);
+
+// A thrown object cannot be picked up for six seconds after it lands.
+void pickupPromptGuardOnThrowLanded(int objectId);
 void pickupPromptGuardOnObjectTaken(int objectId);
 
 #endif
