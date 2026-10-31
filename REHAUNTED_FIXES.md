@@ -37,7 +37,7 @@ Validation labels used below:
 | Stability | Blood and smoke particle heap overruns and effect cleanup | `c7650e96` | Diagnostic confirmed |
 | Saving | Do not truncate object tables raised above 300 entries | `09915be2` | Runtime confirmed |
 | Interaction | Dropped items no longer immediately reopen their pickup prompt | `09915be2` | Source/build verified |
-| Interaction | Takable items no longer make furniture impossible to push | `09915be2` | Runtime confirmed |
+| QoL (optional) | Takable items no longer make furniture impossible to push (changes original behavior) | `09915be2` | Runtime confirmed |
 | Audio | Correct speed and pitch on 48 kHz and multichannel devices | `c696d0c6` | Runtime confirmed |
 | Audio | Stop looping samples on room/floor changes, loads, and menus | `0f453779` | Runtime confirmed |
 | Audio | Play the queued second sample for `sound_then` | `9c97bd44` | Source/build verified |
@@ -118,15 +118,20 @@ behavior were verified, but the complete gameplay matrix (large objects, long
 timer values, overlapping drops, and save/load while overlapping) remains the
 main outstanding runtime test.
 
-### Takable items blocked furniture pushes
+### Quality of life: takable items no longer block furniture pushes
 
-**Symptom.** If a dropped or shuffled item lay under a chest or other pushable
+This is not a bug fix. The original DOS game behaves the same way as stock
+ReHaunted, and the original game never places an item where it would block a
+push. The change is needed when items are shuffled (the randomizer) or
+dropped by the player.
+
+**Behavior.** If a dropped or shuffled item lay under a chest or other pushable
 object, the furniture could not be moved and the item could become unreachable.
 
-**Cause.** The push collision path treated findable item actors as solid
+**Mechanism.** The push collision path treats findable item actors as solid
 blockers, even though ordinary movement treats them as pickup actors.
 
-**Fix.** `pushBlockedByActor` in `anim.cpp` ignores actors with `AF_FOUNDABLE`
+**Change.** `pushBlockedByActor` in `anim.cpp` ignores actors with `AF_FOUNDABLE`
 when deciding whether a push is possible. It still runs the original collision
 query for its script-visible side effects.
 
@@ -391,7 +396,9 @@ for stock ReHaunted:
   the loop-lifecycle fix);
 - the fuller-than-original Smoking Room cloud (`3f8f47fb`);
 - room illumination from a lit lamp that has been put down or thrown
-  (`3b23bb2c`).
+  (`3b23bb2c`);
+- takable items no longer blocking furniture pushes (`09915be2`; see
+  "Quality of life" above): the original game blocks them too.
 
 ## Known issues investigated but not fixed here
 
@@ -416,7 +423,8 @@ For small, independently reviewable changes, start with:
 7. `e94e7074` and `d44802df` — smoke gameplay and original rendering.
 8. `4c5d6253`, `17d73d31`, and `0a720bdb` — darkness and lamp state.
 
-The save-table, pickup, pushing, cave-water, and LIFE/TRACK corrections are
+The save-table, pickup, cave-water, and LIFE/TRACK corrections (and the optional
+furniture-push change) are
 valuable too, but they need hunk-level extraction from the composite commits.
 
 Useful local review commands:
