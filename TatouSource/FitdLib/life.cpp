@@ -369,7 +369,7 @@ int InitSpecialObjet(int mode, int X, int Y, int Z, int stage, int room, int alp
         int j;
 
         // 4 + 20 * 6 + 20 * 4 = 204 bytes are written below (was 184: a 20-byte heap overrun
-        // on every blood spray; Research/Crash_2026-10-16_createAITD1Mask.md)
+        // on every blood spray; REHAUNTED_FIXES.md, "Particle effects")
         currentActorPtr->frame = HQ_Malloc(HQ_Memory, 4 + 20 * (6 + 4));
 
         flowPtr = HQ_PtrMalloc(HQ_Memory, currentActorPtr->frame);

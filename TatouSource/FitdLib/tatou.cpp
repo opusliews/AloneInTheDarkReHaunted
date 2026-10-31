@@ -206,7 +206,7 @@ void playSound(int num)
 // The original engine (INDARK.EXE) keeps `next` in DS:8375; its per-frame sound update
 // 1693:0373, called from PlayWorld (132d:034b), plays it once no sample is playing, through
 // the REP_SAMPLE routine when bit 0x4000 is set, and resets it to -1. FITD and ReHaunted only
-// stored it (Research/SampleThen_MissingLaugh.md). Sound effects overlap here, so the next sample
+// stored it (REHAUNTED_FIXES.md, "sound_then"). Sound effects overlap here, so the next sample
 // waits for the first one's own voice instead of for silence.
 static unsigned int s_sampleThenVoice = 0;
 
@@ -238,7 +238,7 @@ void processNextSample()
 // A looping sample (LM_REP_SAMPLE, e.g. the talisman chimes of LIFE 186) belongs to the
 // room it was started in. The scripts never stop one (no script uses LM_STOP_SAMPLE); the
 // original DOS game stops it when the player leaves the room, not when the item is taken
-// (user test in vanilla DOSBox, 2026-10-16; Research/TalismanChimeLoop.md, option B).
+// (tested in the original game under DOSBox).
 static int s_lastLoopingSample = -1;
 static int s_loopFloor = -1;
 static int s_loopRoom = -1;

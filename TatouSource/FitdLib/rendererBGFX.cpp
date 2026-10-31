@@ -2031,9 +2031,9 @@ void osystem_drawFoundObjectBackground()
 // black except a circle of radius 30 pixels of the 320x200 screen around the light source
 // (the LIGHT_OBJECT actor's on-screen centre), which shows the normal frame. 320x200 pixels
 // are not square on a 4:3 display, so the circle appears as a tall ellipse
-// (References/darkmaze.png). Original: FUN_2763_001f clears the old box, then
-// FUN_2755_0004(lightX, lightY, 30, 30, 7, 0) copies the circle (Research/
-// DarkRoom_F2_R6_Investigation.md). Drawn like osystem_drawBlackScreen: in front of the 3D
+// (as in the original's dark maze). Original: FUN_2763_001f clears the old box, then
+// FUN_2755_0004(lightX, lightY, 30, 30, 7, 0) copies the circle (REHAUNTED_FIXES.md,
+// "Dark rooms"). Drawn like osystem_drawBlackScreen: in front of the 3D
 // scene, behind the UI, so messages stay visible.
 void osystem_drawDarkMask(int lightX, int lightY)
 {

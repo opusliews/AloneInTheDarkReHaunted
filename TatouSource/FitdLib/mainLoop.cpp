@@ -507,7 +507,7 @@ void PlayWorld(int allowSystemMenu, int deltaTime)
                 // like the original: the light circle shows the normal frame, so the
                 // palette darkening and _DARK backgrounds stay off. (ReHaunted derived
                 // this from LIGHT_OBJECT != -1, which misses LIFE 172's rooms and lit the
-                // maze without a light; Research/DarkRoom_F2_R6_Investigation.md.)
+                // maze without a light; REHAUNTED_FIXES.md, "Dark rooms".)
                 bool isDark = false;
                 if (isDark != g_roomIsDark)
                 {
