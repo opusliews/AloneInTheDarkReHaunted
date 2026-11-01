@@ -27,11 +27,13 @@
 #include "inventory.h"
 #include "debugger.h"
 #include "remasterOptions.h"
+#include "hdAutoUpscale.h"
 #include "osystem.h"
 #include "menuFade.h"
 #include "objectInspector.h"
 #include "scenarioTester.h"
 #include "keepAspect.h"
+#include "sequence.h"
 
 #ifndef LANTERN_VERBOSE_LOGS
 #define LANTERN_VERBOSE_LOGS 0
@@ -406,6 +408,7 @@ void EndFrame()
     scenarioRender(outputResolution[0], outputResolution[1]);
     // F1 remaster options are rendered last so the dialog stays above the game,
     // cinematic overlays and ordinary UI at every resolution.
+    hdAutoUpscale_DrawOverlay();
     remasterOptionsDraw();
 
     // Always call imguiEndFrame() to render ImGui windows to bgfx
@@ -415,7 +418,8 @@ void EndFrame()
     // otherwise does a simple pass-through). Always active for scene snapshot capture.
     // Skip endScene() when in PlayWorld but no 3D geometry was submitted yet (e.g. first
     // iteration or camera transitions) to avoid presenting background-only frames.
-    if (g_postProcessing && (!g_playWorldActive || g_menuActive || g_3dFlushedThisFrame))
+    if (g_postProcessing && (!g_playWorldActive || g_menuActive ||
+        g_3dFlushedThisFrame || isSequencePlaybackActive()))
     {
         // "maintain aspect ratio": the scene in the game rectangle, black bars around it
         if (keepAspectEnabled())

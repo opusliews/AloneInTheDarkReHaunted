@@ -120,6 +120,8 @@
 	void osystem_drawSphere(float X, float Y, float Z, u8 color, u8 material, float size);
 	void osystem_drawPoint(float X, float Y, float Z, u8 color, u8 material, float size);
 	void osystem_flushPendingPrimitives();
+void osystem_setModelLighting(bool enabled, float x = 0, float y = 0, float z = 0);
+void osystem_drawContactShadow(const float* vertices, int segments, float opacity);
 	void renderHardColDepthPass();
 	void osystem_drawUILayer();
 

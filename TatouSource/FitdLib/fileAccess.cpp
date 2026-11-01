@@ -28,6 +28,7 @@ extern "C" {
 char* loadFromItd(const char* name)
 {
     // Try disk file first
+    if (!preferEmbeddedGameData())
     {
         FILE* fHandle;
         char* ptr;

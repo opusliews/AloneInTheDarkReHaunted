@@ -21,10 +21,13 @@ extern void playMenuSound(const char* soundName);
 
 #include "hdBackground.h"
 #include "nativeLife.h"
+#include "lightProbes.h"
 #include "bytecodePatches.h"
 #include "bgAnimGrassMask.h"
 #include "hdBackgroundRenderer.h"
 #include "resourceGC.h"
+#include "hdAutoUpscale.h"
+#include "backgroundDump.h"
 #include "track.h"
 #include "lanternLighting.h"
 #include "objectInspector.h"
@@ -173,110 +176,6 @@ int getCVarsIdx(int searchedType)
 {
     return getCVarsIdx((enumCVars)searchedType);
 }
-
-const unsigned char defaultPalette[0x30] =
-{
-    0x00,
-    0x00,
-    0x00,
-    0x3F,
-    0x3F,
-    0x3F,
-    0x0C,
-    0x0C,
-    0x0E,
-    0x30,
-    0x2F,
-    0x3F,
-    0x23,
-    0x2C,
-    0x23,
-    0x2A,
-    0x1D,
-    0x2A,
-    0x2A,
-    0x21,
-    0x18,
-    0x3F,
-    0x05,
-    0x2A,
-    0x12,
-    0x14,
-    0x18,
-    0x31,
-    0x15,
-    0x17,
-    0x15,
-    0x25,
-    0x15,
-    0x15,
-    0x2F,
-    0x3F,
-    0x3F,
-    0x22,
-    0x15,
-    0x2B,
-    0x15,
-    0x3F,
-    0x3F,
-    0x3F,
-    0x21,
-    0x3F,
-    0x3F,
-    0x3F
-};
-
-const unsigned char defaultPaletteAITD3[0x30] =
-{
-    0x00,
-    0x00,
-    0x00,
-    0xFC,
-    0xFC,
-    0xFC,
-    0x30,
-    0x30,
-    0x38,
-    0xC0,
-    0xBC,
-    0xFC,
-    0x78,
-    0x58,
-    0x3C,
-    0x00,
-    0x00,
-    0x00,
-    0xF0,
-    0x70,
-    0x10,
-    0xFC,
-    0xFC,
-    0xFC,
-    0x48,
-    0x50,
-    0x60,
-    0xC4,
-    0x54,
-    0x5C,
-    0x54,
-    0x94,
-    0x54,
-    0x54,
-    0xBC,
-    0xFC,
-    0xFC,
-    0x88,
-    0x54,
-    0xAC,
-    0x54,
-    0xFC,
-    0xFC,
-    0xFC,
-    0xFC,
-    0xFC,
-    0xFC,
-    0xF8
-};
 
 void executeFoundLife(int objIdx)
 {
@@ -2010,24 +1909,7 @@ void loadCamera(int cameraIdx)
     if (g_gameId >= JACK)
     {
         copyPalette(aux + 64000, currentGamePalette);
-
-        if (g_gameId == AITD3)
-        {
-            for (int i = 0; i < 16; i++) {
-                currentGamePalette[i][0] = defaultPaletteAITD3[i * 3 + 0];
-                currentGamePalette[i][1] = defaultPaletteAITD3[i * 3 + 1];
-                currentGamePalette[i][2] = defaultPaletteAITD3[i * 3 + 2];
-            }
-        }
-        else
-        {
-            for (int i = 0; i < 16; i++) {
-                currentGamePalette[i][0] = defaultPalette[i * 3 + 0];
-                currentGamePalette[i][1] = defaultPalette[i * 3 + 1];
-                currentGamePalette[i][2] = defaultPalette[i * 3 + 2];
-            }
-        }
-        convertPaletteIfRequired(currentGamePalette);
+        prepareCameraPalette(currentGamePalette);
 
         osystem_setPalette(&currentGamePalette);
     }
@@ -2059,6 +1941,9 @@ void loadCamera(int cameraIdx)
     const char* bgSuffix = nullptr;
     if (g_gameId == AITD1 && g_roomIsDark)
         bgSuffix = "DARK";
+
+    if (g_lightProbeManager)
+        g_lightProbeManager->setScene(g_currentFloor, cameraIdx);
 
     HDBackgroundInfo* hdBg = nullptr;
     bool isFromCache = false;
@@ -2118,6 +2003,8 @@ void loadCamera(int cameraIdx)
     if (hdBg)
     {
         // HD background available
+        if (g_lightProbeManager)
+            g_lightProbeManager->setBackgroundAmbient(hdBg->data, hdBg->width, hdBg->height, hdBg->channels);
         updateBackgroundTextureHD(hdBg->data, hdBg->width, hdBg->height, hdBg->channels);
 
         // If it's animated, keep it alive for animation updates
@@ -6201,23 +6088,30 @@ void detectGame(void)
 {
     const char* gameName = NULL;
 
-    // JACK mode forces Jack in the Dark, even if AITD1 sentinel files
-    // are also present in the working directory.
-    if (g_remasterConfig.gameData.jackMode && fileExists("PERE.PAK"))
+    // The selected mode is authoritative. Each mode has its own embedded
+    // registry, so identically named loose files cannot select another game.
+    if (g_remasterConfig.gameData.mode == REMASTER_GAME_JACK && fileExists("PERE.PAK"))
     {
         g_gameId = JACK;
         CVars.resize(70);
         currentCVarTable = AITD2KnownCVars;
         gameName = "Jack in the Dark";
     }
-    else if (fileExists("AITD2.flag"))
+    else if (g_remasterConfig.gameData.mode == REMASTER_GAME_AITD2 && fileExists("MER.PAK"))
     {
         g_gameId = AITD2;
         CVars.resize(70);
         currentCVarTable = AITD2KnownCVars;
         gameName = "Alone in the Dark 2";
     }
-    else if (fileExists("LISTBOD2.PAK"))
+    else if (g_remasterConfig.gameData.mode == REMASTER_GAME_AITD3 && fileExists("AN1.PAK"))
+    {
+        g_gameId = AITD3;
+        CVars.resize(70);
+        currentCVarTable = AITD2KnownCVars;
+        gameName = "Alone in the Dark 3";
+    }
+    else if (g_remasterConfig.gameData.mode == REMASTER_GAME_AITD1 && fileExists("LISTBOD2.PAK"))
     {
         g_gameId = AITD1;
         CVars.resize(45);
@@ -6323,11 +6217,18 @@ int FitdMain(int argc, char* argv[])
     // Apply the loaded palette to the renderer
     osystem_setPalette(&currentGamePalette);
 
+    // AITD2/AITD3 can build missing replacement content in the background.
+    // The quick source extraction happens here while PAK access is single-
+    // threaded; all GPU-heavy Upscayl work continues during gameplay.
+    hdAutoUpscale_Initialize();
+
     // Optionally dump every original PAK background to PNG on launch.
     if (g_remasterConfig.backgrounds.dumpEnabled)
     {
-        extern void dumpAllBackgrounds();
-        dumpAllBackgrounds();
+        char sourceDir[512], outputDir[512];
+        snprintf(sourceDir, sizeof(sourceDir), "%sbackgrounds_dump", homePath);
+        snprintf(outputDir, sizeof(outputDir), "%s%s", homePath, getHDBackgroundFolder());
+        beginIncrementalBackgroundDump(sourceDir, outputDir, false);
     }
 
     switch (g_gameId)

@@ -48,17 +48,23 @@ file(GLOB_RECURSE SRC_ROOT
     "*.h"
 )
 
+# modelAtlas_fixed.cpp is an older copy of modelAtlas.cpp that defines the same
+# functions. Up to 2.4 the linker happened to take it; 2.5's modelAtlas.cpp has
+# functions the old copy lacks, so both were pulled in (LNK2005). modelAtlas.cpp
+# is the maintained one (2.5's atlas size cap is there); leave the copy out.
+list(FILTER SRC_ROOT EXCLUDE REGEX "/modelAtlas_fixed[.]cpp$")
 
 
-# Randomizer edition: leave out every embedded original game file (AITD1 and
-# Jack in the Dark PAK/ITD data, and their lookup tables). The game then reads
+
+# Randomizer edition: leave out every embedded original game file (AITD1, Jack
+# in the Dark, AITD2 and AITD3 PAK/ITD data, and their lookup tables). The game then reads
 # the player's own data files; embedded/noGameData.cpp serves the remaining
 # non-game assets (ControllerHint.png). Not legal advice: see
 # Research/ReHauntedDataHandling.md and RandomizerPlan.md "Releases".
 if(AITD_RANDOMIZER_EDITION)
     list(FILTER SRC_ROOT EXCLUDE REGEX "embedded/embedded_.*_(PAK|ITD)[.]cpp$")
     list(FILTER SRC_ROOT EXCLUDE REGEX "embedded/embedded_jack_.*[.]cpp$")
-    list(FILTER SRC_ROOT EXCLUDE REGEX "embedded/embedded(Jack)?Data[.]cpp$")
+    list(FILTER SRC_ROOT EXCLUDE REGEX "embedded/embedded(Jack|Aitd2|Aitd3)?Data[.]cpp$")
 endif()
 
 # Base source files
@@ -135,6 +141,8 @@ addShaderProgram(maskBackground_vs maskHDBackground_ps maskBackground.varying.de
 addShaderProgram(maskBackground_vs maskHDOverlay_ps maskBackground.varying.def)
 addShaderProgram(flat_vs flat_ps flat.varying.def)
 addShaderProgram(flat_vs textured_ps flat.varying.def)
+addShaderProgram(flat_vs contactShadow_ps flat.varying.def)
+addShaderProgram(softShadow_vs softShadow_ps flat.varying.def)
 addShaderProgram(noise_vs noise_ps noise.varying.def)
 addShaderProgram(ramp_vs ramp_ps ramp.varying.def)
 addShaderProgram(sphere_vs sphere_ps sphere.varying.def)

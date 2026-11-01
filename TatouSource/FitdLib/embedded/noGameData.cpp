@@ -1,7 +1,8 @@
 ///////////////////////////////////////////////////////////////////////////////
 // AITD randomizer edition of ReHaunted (CMake option AITD_RANDOMIZER_EDITION).
 //
-// Replaces embeddedData.cpp / embeddedJackData.cpp, which the edition leaves out
+// Replaces embeddedData.cpp / embeddedJackData.cpp / embeddedAitd2Data.cpp /
+// embeddedAitd3Data.cpp, which the edition leaves out
 // together with every embedded original game file: the game reads the player's
 // own PAK/ITD files instead (all loaders fall back to disk). Only ReHaunted's own
 // non-game asset stays embedded.
@@ -44,6 +45,16 @@ bool getEmbeddedAitd1File(const char* filename, const unsigned char** outData, s
 }
 
 bool getEmbeddedJackFile(const char*, const unsigned char**, size_t*)
+{
+    return false;
+}
+
+bool getEmbeddedAitd2File(const char*, const unsigned char**, size_t*)
+{
+    return false;
+}
+
+bool getEmbeddedAitd3File(const char*, const unsigned char**, size_t*)
 {
     return false;
 }

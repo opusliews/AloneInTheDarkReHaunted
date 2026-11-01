@@ -71,6 +71,11 @@ namespace HDArchive
     // Is an archive currently open?
     bool isOpen();
 
+    // Path passed to the successful open() call, or an empty string when closed.
+    // Callers use this to avoid mistaking another subsystem's singleton archive
+    // for the background archive they need.
+    const char* currentPath();
+
     // Look up a single entry by exact relative path (case-insensitive).
     // Uses a hash map for O(1) average lookup time.
     // Returns nullptr if not found.

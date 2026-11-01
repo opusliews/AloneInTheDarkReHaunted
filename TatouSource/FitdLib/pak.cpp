@@ -173,6 +173,7 @@ static void pakOpenDisk(FILE** fileHandle, const char* path, const char* name)
 unsigned int PAK_getNumFiles(const char* name)
 {
     // Try disk file first
+    if (!preferEmbeddedGameData())
     {
         char bufferName[512];
         FILE* fileHandle;
@@ -286,6 +287,7 @@ int getPakSize(const char* name, int index)
     return (size);
 #else
     // Try disk file first
+    if (!preferEmbeddedGameData())
     {
         char bufferName[512];
         FILE* fileHandle;
@@ -412,6 +414,7 @@ char* loadPak(const char* name, int index)
 	return ptr;
 #else
 	// Try disk file first
+	if (!preferEmbeddedGameData())
 	{
 		char bufferName[512];
 		FILE* fileHandle;

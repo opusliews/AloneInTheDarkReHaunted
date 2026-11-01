@@ -4,11 +4,22 @@
 #include <cstdio>
 #include <cstring>
 #include <vector>
+#include <iterator>
 
 // Offsets below are byte offsets into the authoritative AITD1 LISTLIFE entries,
 // verified against the original resources and LifeDISA output.
 namespace
 {
+int loadedResourceSize(hqrEntryStruct<char>* archive, int key)
+{
+    if (!archive)
+        return 0;
+    for (const auto& entry : archive->entries)
+        if (entry.key == key && entry.ptr)
+            return entry.size;
+    return 0;
+}
+
 unsigned short readWord(const char* data, int offset)
 {
     return static_cast<unsigned short>(
@@ -67,39 +78,41 @@ constexpr unsigned char kLife522Insert[] = { 0x13, 0x00, 0xAC, 0x00, 0xFF, 0xFF,
 constexpr unsigned char kLife522Tail[] = { 0x13, 0x00, 0x21, 0x00, 0xFF, 0xFF, 0x01, 0x00 }; // var var_33 1
 
 std::vector<char> gLife522Patched;
-bool gLife522Checked = false;
-bool gLife522Valid = false;
+bool gLife522MismatchReported = false;
 
-char* patchLife522(char* data)
+char* patchLife522(char* data, int size)
 {
-    // A LISTLIFE already patched by the randomizer (the same 340 bytes) is used as it is
-    if (readWord(data, 8) == 160 + sizeof(kLife522Insert) / 2 &&
+    // An already patched LISTLIFE (the same 340 bytes, e.g. from the AITD Randomizer) is used as it is
+    if (size >= kLife522Length + static_cast<int>(sizeof(kLife522Insert)) &&
+        readWord(data, 8) == 160 + sizeof(kLife522Insert) / 2 &&
         readWord(data, 20) == 154 + sizeof(kLife522Insert) / 2 &&
         std::memcmp(data + kLife522InsertAt, kLife522Insert, sizeof(kLife522Insert)) == 0)
         return data;
 
-    if (!gLife522Checked)
+    // Recheck each loaded entry: an HQR reset can load different game data.
+    const bool matches =
+        readWord(data, 8) == 160 &&
+        readWord(data, 20) == 154 &&
+        std::memcmp(data + kLife522InsertAt - sizeof(kLife522Tail), kLife522Tail, sizeof(kLife522Tail)) == 0;
+    if (!matches)
     {
-        gLife522Checked = true;
-        const bool matches =
-            readWord(data, 8) == 160 &&
-            readWord(data, 20) == 154 &&
-            std::memcmp(data + kLife522InsertAt - sizeof(kLife522Tail), kLife522Tail, sizeof(kLife522Tail)) == 0;
-        if (!matches)
+        if (!gLife522MismatchReported)
         {
+            gLife522MismatchReported = true;
             std::printf("[LIFE BUGFIX] LIFE 522 layout mismatch; endgame lure-flag patch skipped\n");
-            return data;
         }
-
+        return data;
+    }
+    if (gLife522Patched.empty())
+    {
         const int insertWords = static_cast<int>(sizeof(kLife522Insert) / 2);
         gLife522Patched.assign(data, data + kLife522Length);
         gLife522Patched.insert(gLife522Patched.begin() + kLife522InsertAt,
             std::begin(kLife522Insert), std::end(kLife522Insert));
         writeWord(gLife522Patched.data(), 8, static_cast<unsigned short>(160 + insertWords));
         writeWord(gLife522Patched.data(), 20, static_cast<unsigned short>(154 + insertWords));
-        gLife522Valid = true;
     }
-    return gLife522Valid ? gLife522Patched.data() : data;
+    return gLife522Patched.data();
 }
 
 // LIFE 460 (worm, office route: waits for the player in room 5/4, then starts
@@ -133,13 +146,14 @@ constexpr int kLife460InsertAt = 12;
 std::vector<char> gLife460Patched;
 bool gLife460MismatchReported = false;
 
-char* patchLife460(char* data)
+char* patchLife460(char* data, int size)
 {
     // Bytes 12..15 tell the two layouts apart without reading past a 28-byte entry
     if (std::memcmp(data + kLife460InsertAt, kLife460Patched + kLife460InsertAt, 4) == 0)
     {
-        if (std::memcmp(data, kLife460Patched, sizeof(kLife460Patched)) == 0)
-            return data; // already patched (randomizer LISTLIFE)
+        if (size >= static_cast<int>(sizeof(kLife460Patched)) &&
+            std::memcmp(data, kLife460Patched, sizeof(kLife460Patched)) == 0)
+            return data; // already patched
     }
     else if (std::memcmp(data, kLife460Original, sizeof(kLife460Original)) == 0)
     {
@@ -161,6 +175,12 @@ char* lifeBugfixPatchLife(int lifeNum, char* lifeData)
     if (g_gameId != AITD1 || !lifeData)
         return lifeData;
 
+    const int size = loadedResourceSize(listLife, lifeNum);
+    if ((lifeNum == 550 && size < 1812) ||
+        (lifeNum == 522 && size < kLife522Length) ||
+        (lifeNum == 460 && size < kLife460Length))
+        return lifeData;
+
     if (lifeNum == 550)
     {
         for (const WordPatch& patch : kLife550Patches)
@@ -168,11 +188,11 @@ char* lifeBugfixPatchLife(int lifeNum, char* lifeData)
     }
     else if (lifeNum == 522)
     {
-        return patchLife522(lifeData);
+        return patchLife522(lifeData, size);
     }
     else if (lifeNum == 460)
     {
-        return patchLife460(lifeData);
+        return patchLife460(lifeData, size);
     }
     return lifeData;
 }
@@ -255,6 +275,8 @@ char* trackBugfixPatchTrack(int trackNum, char* trackData)
     {
         if (patch.track != trackNum)
             continue;
+        if (loadedResourceSize(listTrack, trackNum) < patch.offset + static_cast<int>(patch.size))
+            return trackData;
         char* site = trackData + patch.offset;
         if (std::memcmp(site, patch.patched, patch.size) == 0)
             return trackData; // HQR cache entry already patched.

@@ -27,6 +27,7 @@ static const uint32_t HDARCHIVE_VERSION_2 = 2;
 static FILE*                          s_file    = nullptr;
 static std::vector<HDArchiveEntry>    s_entries;
 static bool                           s_open    = false;
+static std::string                    s_currentPath;
 
 // Hash map for O(1) case-insensitive lookup by path
 static std::unordered_map<std::string, size_t> s_pathIndex; // lowered path -> index in s_entries
@@ -164,6 +165,7 @@ bool open(const char* archivePath)
 
     s_file = f;
     s_open = true;
+    s_currentPath = archivePath ? archivePath : "";
 
     if (isV2)
     {
@@ -196,11 +198,17 @@ void close()
     s_entries.clear();
     s_pathIndex.clear();
     s_open = false;
+    s_currentPath.clear();
 }
 
 bool isOpen()
 {
     return s_open;
+}
+
+const char* currentPath()
+{
+    return s_currentPath.c_str();
 }
 
 const HDArchiveEntry* findEntry(const char* relativePath)
